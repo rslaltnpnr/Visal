@@ -14,7 +14,8 @@ val keystoreProperties = Properties().apply {
 
 android {
     namespace = "app.visal.visal"
-    compileSdk = flutter.compileSdkVersion
+    // permission_handler_android 37 ile derlenmeyi gerektirir (geriye uyumlu).
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
