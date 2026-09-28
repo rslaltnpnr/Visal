@@ -53,7 +53,6 @@ dependencies:
   video_player: ^2.14.0
   cached_network_image: ^4.0.2
   flutter_image_compress: ^2.5.1
-  video_thumbnail: ^0.5.6
   record: ^7.1.1
   just_audio: ^0.10.6
   qr_flutter: ^4.1.0
@@ -72,6 +71,7 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   firebase_app_check: ^0.4.8
+  fc_native_video_thumbnail: ^3.0.1
 
 dev_dependencies:
   flutter_test:

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:fc_native_video_thumbnail/fc_native_video_thumbnail.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
@@ -11,7 +12,6 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:video_player/video_player.dart';
-import 'package:video_thumbnail/video_thumbnail.dart';
 
 import '../utils/failure.dart';
 import 'firebase_providers.dart';
@@ -243,10 +243,11 @@ class MediaService {
     Size? dims;
     Duration? duration;
     try {
-      thumb = await VideoThumbnail.thumbnailData(
-        video: media.path,
-        imageFormat: ImageFormat.JPEG,
-        maxWidth: thumbSide,
+      thumb = await FcNativeVideoThumbnail().saveThumbnailToBytes(
+        srcFile: media.path,
+        width: thumbSide,
+        height: thumbSide,
+        format: 'jpeg',
         quality: 72,
       );
       final controller = VideoPlayerController.file(file);
