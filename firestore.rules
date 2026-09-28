@@ -1,0 +1,424 @@
+rules_version = '2';
+
+// VISAL Firestore güvenlik kuralları
+//
+// İlkeler:
+//  * Kullanıcı yalnızca kendi users/{uid} belgesini okuyabilir/yazabilir.
+//  * couples/{coupleId} ve tüm alt koleksiyonlarına yalnızca `members`
+//    listesindeki iki kullanıcı erişebilir. coupleId tahmin edilse bile üçüncü
+//    bir kullanıcı erişemez (üyelik sunucudaki belgeden okunur).
+//  * Eşleşme (coupleId / members) yalnızca Cloud Functions tarafından yazılır.
+//  * Arşivlenmiş (eşleşmesi bitmiş) çift alanlarına kimse erişemez.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------------------------------------------------------------- helpers
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function me() {
+      return request.auth.uid;
+    }
+
+    function coupleDoc(coupleId) {
+      return get(/databases/$(database)/documents/couples/$(coupleId));
+    }
+
+    function isMember(coupleId) {
+      let c = coupleDoc(coupleId);
+      return signedIn()
+        && c != null
+        && me() in c.data.members
+        && c.data.get('status', 'active') == 'active';
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    function onlyChanges(keys) {
+      return changedKeys().hasOnly(keys);
+    }
+
+    function isText(v, max) {
+      return v is string && v.size() <= max;
+    }
+
+    function nonEmptyText(v, max) {
+      return v is string && v.size() > 0 && v.size() <= max;
+    }
+
+    function optText(data, key, max) {
+      return !(key in data) || data[key] == null || isText(data[key], max);
+    }
+
+    function optTimestamp(data, key) {
+      return !(key in data) || data[key] == null || data[key] is timestamp;
+    }
+
+    function optBool(data, key) {
+      return !(key in data) || data[key] is bool;
+    }
+
+    function unchanged(key) {
+      return request.resource.data.get(key, null) == resource.data.get(key, null);
+    }
+
+    // ----------------------------------------------------------------- users
+    match /users/{userId} {
+      allow read: if signedIn() && me() == userId;
+
+      allow create: if signedIn() && me() == userId
+        && incoming().keys().hasOnly(['uid', 'name', 'email', 'photoUrl', 'coupleId', 'birthday',
+                                      'createdAt', 'lastSeen', 'settings'])
+        && incoming().uid == userId
+        && incoming().coupleId == null
+        && nonEmptyText(incoming().name, 80)
+        && optText(incoming(), 'photoUrl', 2048)
+        && optTimestamp(incoming(), 'birthday');
+
+      // coupleId, email, uid, createdAt istemci tarafından değiştirilemez.
+      allow update: if signedIn() && me() == userId
+        && onlyChanges(['name', 'photoUrl', 'birthday', 'lastSeen', 'settings', 'chatLastReadAt'])
+        && nonEmptyText(incoming().name, 80)
+        && optText(incoming(), 'photoUrl', 2048)
+        && optTimestamp(incoming(), 'birthday')
+        && (!('settings' in incoming()) || incoming().settings is map);
+
+      allow delete: if false;
+
+      match /tokens/{token} {
+        allow read, delete: if signedIn() && me() == userId;
+        allow create, update: if signedIn() && me() == userId
+          && incoming().keys().hasOnly(['token', 'platform', 'updatedAt'])
+          && incoming().token == token;
+      }
+
+      // Bildirim kutusu yalnızca Cloud Functions tarafından yazılır.
+      match /inbox/{itemId} {
+        allow read: if signedIn() && me() == userId;
+        allow update: if signedIn() && me() == userId
+          && onlyChanges(['read']) && incoming().read is bool;
+        allow create, delete: if false;
+      }
+    }
+
+    // ------------------------------------------------------ pairing (server)
+    match /invites/{code} {
+      allow read, write: if false;
+    }
+
+    match /pairRequests/{requestId} {
+      allow read: if signedIn()
+        && (resource.data.fromUid == me() || resource.data.toUid == me());
+      allow write: if false;
+    }
+
+    // ---------------------------------------------------------------- couples
+    match /couples/{coupleId} {
+      allow read: if signedIn()
+        && me() in resource.data.members
+        && resource.data.get('status', 'active') == 'active';
+
+      allow update: if isMember(coupleId)
+        && onlyChanges(['relationshipStartDate', 'anniversaryDate', 'theme', 'coverPhoto', 'coverPath'])
+        && optTimestamp(incoming(), 'relationshipStartDate')
+        && optTimestamp(incoming(), 'anniversaryDate')
+        && optText(incoming(), 'coverPhoto', 2048)
+        && optText(incoming(), 'coverPath', 512)
+        && optText(incoming(), 'theme', 32);
+
+      allow create, delete: if false;
+
+      // Partnerin görebildiği profil kopyası; herkes yalnızca kendisininkini yazar.
+      match /profiles/{profileUid} {
+        allow read: if isMember(coupleId);
+        allow create, update: if isMember(coupleId) && me() == profileUid
+          && incoming().keys().hasOnly(['name', 'photoUrl', 'birthday', 'moodVisible'])
+          && optText(incoming(), 'name', 80)
+          && optText(incoming(), 'photoUrl', 2048)
+          && optTimestamp(incoming(), 'birthday')
+          && optBool(incoming(), 'moodVisible');
+        allow delete: if false;
+      }
+
+      // --------------------------------------------------------- messages
+      match /messages/{messageId} {
+        allow read: if isMember(coupleId);
+
+        allow create: if isMember(coupleId)
+          && incoming().keys().hasOnly(['senderId', 'type', 'text', 'mediaUrl', 'media', 'replyTo',
+                                        'reactions', 'createdAt', 'clientTime', 'seenBy',
+                                        'deletedFor', 'pinned', 'loveKind'])
+          && incoming().senderId == me()
+          && incoming().createdAt == request.time
+          && incoming().clientTime is timestamp
+          && incoming().type in ['text', 'image', 'video', 'voice', 'file', 'gif', 'love']
+          && incoming().seenBy == [me()]
+          && incoming().deletedFor == []
+          && incoming().reactions == {}
+          && incoming().pinned == false
+          && optText(incoming(), 'text', 4000)
+          && optText(incoming(), 'mediaUrl', 2048)
+          && (!('media' in incoming()) || incoming().media is map)
+          && (!('replyTo' in incoming()) || incoming().replyTo is map)
+          && (incoming().type != 'text' || nonEmptyText(incoming().text, 4000))
+          && (incoming().type != 'love' || incoming().loveKind in ['love', 'miss', 'home', 'coffee', 'call', 'kiss'])
+          && (incoming().type in ['text', 'love'] || incoming().mediaUrl is string);
+
+        allow update: if isMember(coupleId) && (
+          // Gönderen metni düzenler.
+          (resource.data.senderId == me()
+            && resource.data.type == 'text'
+            && resource.data.get('deletedForAll', false) == false
+            && onlyChanges(['text', 'editedAt'])
+            && nonEmptyText(incoming().text, 4000)
+            && incoming().editedAt == request.time)
+          // Gönderen herkesten siler: içerik kaldırılır.
+          || (resource.data.senderId == me()
+            && onlyChanges(['deletedForAll', 'text', 'mediaUrl', 'media', 'replyTo', 'pinned'])
+            && incoming().deletedForAll == true
+            && incoming().get('text', null) == null
+            && incoming().get('mediaUrl', null) == null
+            && incoming().get('media', null) == null)
+          // Tepki: herkes yalnızca kendi anahtarını değiştirir.
+          || (onlyChanges(['reactions'])
+            && incoming().reactions.diff(resource.data.get('reactions', {})).affectedKeys().hasOnly([me()])
+            && (!(me() in incoming().reactions) || isText(incoming().reactions[me()], 16)))
+          // Okundu: yalnızca kendini ekler.
+          || (onlyChanges(['seenBy'])
+            && incoming().seenBy.toSet() == resource.data.seenBy.toSet().union([me()].toSet()))
+          // Benden sil: yalnızca kendini ekler.
+          || (onlyChanges(['deletedFor'])
+            && incoming().deletedFor.toSet() == resource.data.deletedFor.toSet().union([me()].toSet()))
+          // Sabitle / kaldır.
+          || (onlyChanges(['pinned', 'pinnedAt'])
+            && incoming().pinned is bool
+            && (incoming().pinned == false || incoming().pinnedAt == request.time))
+        );
+
+        allow delete: if false;
+      }
+
+      // --------------------------------------------------------- memories
+      function validMemory(d) {
+        return d.keys().hasOnly(['createdBy', 'title', 'description', 'date', 'monthDay', 'year', 'media',
+                                 'location', 'emoji', 'musicUrl', 'isSpecial', 'isTravel', 'hasPhoto',
+                                 'hasVideo', 'createdAt', 'updatedAt'])
+          && nonEmptyText(d.title, 80)
+          && optText(d, 'description', 2000)
+          && d.date is timestamp
+          && d.monthDay is string && d.monthDay.matches('^[0-1][0-9]-[0-3][0-9]$')
+          && d.media is list && d.media.size() <= 30
+          && optText(d, 'location', 120)
+          && optText(d, 'emoji', 16)
+          && optText(d, 'musicUrl', 2048)
+          && d.isSpecial is bool && d.isTravel is bool;
+      }
+
+      match /memories/{memoryId} {
+        allow read: if isMember(coupleId);
+        allow create: if isMember(coupleId)
+          && validMemory(incoming())
+          && incoming().createdBy == me()
+          && incoming().createdAt == request.time;
+        allow update: if isMember(coupleId)
+          && validMemory(incoming())
+          && unchanged('createdBy') && unchanged('createdAt');
+        allow delete: if isMember(coupleId);
+      }
+
+      // ---------------------------------------------------- our story
+      match /timeline/{eventId} {
+        allow read: if isMember(coupleId);
+        allow create, update: if isMember(coupleId)
+          && incoming().keys().hasOnly(['type', 'title', 'date', 'createdBy', 'description', 'photoUrl',
+                                        'photoPath', 'updatedAt'])
+          && incoming().type in ['firstMessage', 'firstDate', 'engagement', 'marriage', 'firstTrip', 'custom']
+          && nonEmptyText(incoming().title, 80)
+          && incoming().date is timestamp
+          && optText(incoming(), 'description', 1000)
+          && (resource == null ? incoming().createdBy == me() : unchanged('createdBy'));
+        allow delete: if isMember(coupleId);
+      }
+
+      // --------------------------------------------------------- events
+      match /events/{eventId} {
+        allow read: if isMember(coupleId);
+        allow create: if isMember(coupleId)
+          && validEvent(incoming())
+          && incoming().createdBy == me()
+          && incoming().createdAt == request.time;
+        allow update: if isMember(coupleId)
+          && validEvent(incoming())
+          && unchanged('createdBy') && unchanged('createdAt') && unchanged('nextReminderAt');
+        allow delete: if isMember(coupleId);
+
+        function validEvent(d) {
+          return d.keys().hasOnly(['title', 'category', 'date', 'startsAt', 'time', 'location', 'note',
+                                   'reminder', 'repeat', 'color', 'createdBy', 'createdAt', 'updatedAt',
+                                   'nextReminderAt'])
+            && nonEmptyText(d.title, 80)
+            && d.category in ['special', 'date', 'activity', 'travel', 'home', 'birthday', 'anniversary']
+            && d.date is timestamp && d.startsAt is timestamp
+            && (d.time == null || (d.time is string && d.time.matches('^[0-2][0-9]:[0-5][0-9]$')))
+            && optText(d, 'location', 120)
+            && optText(d, 'note', 1000)
+            && (d.reminder == null || (d.reminder is int && d.reminder >= 0 && d.reminder <= 43200))
+            && d.repeat in ['none', 'daily', 'weekly', 'monthly', 'yearly']
+            && (d.color == null || d.color is int);
+        }
+      }
+
+      // --------------------------------------------------------- tasks
+      match /tasks/{taskId} {
+        allow read: if isMember(coupleId);
+        allow create: if isMember(coupleId)
+          && validTask(incoming())
+          && incoming().createdBy == me()
+          && incoming().createdAt == request.time;
+        allow update: if isMember(coupleId)
+          && validTask(incoming())
+          && unchanged('createdBy') && unchanged('createdAt');
+        allow delete: if isMember(coupleId);
+
+        function validTask(d) {
+          return d.keys().hasOnly(['title', 'description', 'dueDate', 'assignee', 'done', 'doneBy', 'doneAt',
+                                   'createdBy', 'createdAt'])
+            && nonEmptyText(d.title, 120)
+            && optText(d, 'description', 1000)
+            && optTimestamp(d, 'dueDate')
+            && (d.assignee == 'both' || d.assignee in coupleDoc(coupleId).data.members)
+            && d.done is bool;
+        }
+      }
+
+      // --------------------------------------------------------- goals
+      match /goals/{goalId} {
+        allow read: if isMember(coupleId);
+        allow create: if isMember(coupleId)
+          && validGoal(incoming())
+          && incoming().createdBy == me()
+          && incoming().createdAt == request.time;
+        allow update: if isMember(coupleId)
+          && validGoal(incoming())
+          && unchanged('createdBy') && unchanged('createdAt');
+        allow delete: if isMember(coupleId);
+
+        function validGoal(d) {
+          return d.keys().hasOnly(['title', 'current', 'target', 'unit', 'emoji', 'step', 'createdBy', 'createdAt'])
+            && nonEmptyText(d.title, 80)
+            && d.current is number && d.current >= 0
+            && d.target is number && d.target > 0
+            && d.step is number && d.step > 0
+            && optText(d, 'unit', 24)
+            && optText(d, 'emoji', 16);
+        }
+      }
+
+      // ---------------------------------------------------------- moods
+      // Günde bir: belge kimliği {yyyy-MM-dd}_{uid}.
+      match /moods/{moodId} {
+        allow read: if isMember(coupleId) && (
+          resource.data.uid == me()
+          || get(/databases/$(database)/documents/couples/$(coupleId)/profiles/$(resource.data.uid))
+               .data.get('moodVisible', true) == true
+        );
+        allow create, update: if isMember(coupleId)
+          && incoming().keys().hasOnly(['uid', 'day', 'emoji', 'createdAt'])
+          && incoming().uid == me()
+          && moodId == incoming().day + '_' + me()
+          && incoming().day.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+          && incoming().emoji in ['😍', '😊', '🙂', '😐', '😔', '😡', '🥱', '🤒']
+          && incoming().createdAt == request.time;
+        allow delete: if false;
+      }
+
+      // ------------------------------------------------------ questions
+      match /questions/{questionId} {
+        allow read: if isMember(coupleId);
+        allow create: if isMember(coupleId)
+          && incoming().keys().hasOnly(['text', 'category', 'bankId', 'day', 'answeredBy', 'createdAt'])
+          && nonEmptyText(incoming().text, 300)
+          && incoming().answeredBy == []
+          && incoming().createdAt == request.time
+          && (questionId.matches('^d_[0-9]{4}-[0-9]{2}-[0-9]{2}$') || questionId.matches('^b_[0-9]+$'));
+        // Merge ile tekrar oluşturma (aynı içerik) veya cevaplayanlara kendini ekleme.
+        allow update: if isMember(coupleId) && (
+          (onlyChanges(['answeredBy'])
+            && incoming().answeredBy.toSet() == resource.data.answeredBy.toSet().union([me()].toSet())
+            && existsAfter(/databases/$(database)/documents/couples/$(coupleId)/answers/$(questionId + '_' + me())))
+          || changedKeys().size() == 0
+        );
+        allow delete: if false;
+      }
+
+      // Partnerin cevabı, kullanıcı kendi cevabını yazmadan okunamaz.
+      match /answers/{answerId} {
+        allow read: if isMember(coupleId) && (
+          resource.data.uid == me()
+          || exists(/databases/$(database)/documents/couples/$(coupleId)/answers/$(resource.data.questionId + '_' + me()))
+        );
+        allow create: if isMember(coupleId)
+          && incoming().keys().hasOnly(['uid', 'questionId', 'text', 'createdAt'])
+          && incoming().uid == me()
+          && answerId == incoming().questionId + '_' + me()
+          && nonEmptyText(incoming().text, 1000)
+          && incoming().createdAt == request.time
+          && exists(/databases/$(database)/documents/couples/$(coupleId)/questions/$(incoming().questionId));
+        allow update, delete: if false;
+      }
+
+      // ------------------------------------------------------- capsules
+      // Üst veri çifte açık; içerik açılma tarihine kadar yalnızca oluşturana açık.
+      match /capsules/{capsuleId} {
+        allow read: if isMember(coupleId);
+        allow create: if isMember(coupleId)
+          && incoming().keys().hasOnly(['createdBy', 'recipientId', 'openAt', 'title', 'hasPhoto', 'hasVideo',
+                                        'hasAudio', 'notified', 'createdAt'])
+          && incoming().createdBy == me()
+          && incoming().recipientId != me()
+          && incoming().recipientId in coupleDoc(coupleId).data.members
+          && incoming().openAt is timestamp
+          && incoming().openAt > request.time
+          && incoming().notified == false
+          && incoming().createdAt == request.time
+          && optText(incoming(), 'title', 60);
+        allow update: if false;
+        allow delete: if isMember(coupleId)
+          && resource.data.createdBy == me()
+          && request.time < resource.data.openAt;
+
+        match /content/{docId} {
+          function capsule() {
+            return get(/databases/$(database)/documents/couples/$(coupleId)/capsules/$(capsuleId)).data;
+          }
+          allow read: if isMember(coupleId)
+            && (capsule().createdBy == me() || request.time >= capsule().openAt);
+          allow create: if isMember(coupleId)
+            && docId == 'main'
+            && getAfter(/databases/$(database)/documents/couples/$(coupleId)/capsules/$(capsuleId)).data.createdBy == me()
+            && incoming().keys().hasOnly(['message', 'media'])
+            && isText(incoming().message, 5000)
+            && incoming().media is list && incoming().media.size() <= 10;
+          allow update, delete: if false;
+        }
+      }
+
+      // Gelecekteki albüm özelliği için ayrılmıştır.
+      match /albums/{albumId} {
+        allow read, write: if isMember(coupleId);
+      }
+    }
+
+    // Diğer her şey kapalı.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
