@@ -1,0 +1,99 @@
+rules_version = '2';
+
+// VISAL Storage güvenlik kuralları
+//
+// couples/{coupleId}/... altındaki dosyaları yalnızca o çiftin iki üyesi
+// okuyabilir/yükleyebilir. Üyelik Firestore'daki couples belgesinden okunur
+// (cross-service rules), bu yüzden coupleId tahmin edilse bile erişim olmaz.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function coupleData(coupleId) {
+      return firestore.get(/databases/(default)/documents/couples/$(coupleId)).data;
+    }
+
+    function isMember(coupleId) {
+      return signedIn()
+        && request.auth.uid in coupleData(coupleId).members
+        && coupleData(coupleId).get('status', 'active') == 'active';
+    }
+
+    function underMb(mb) {
+      return request.resource.size < mb * 1024 * 1024;
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/(jpeg|png|heic|heif|webp|gif)');
+    }
+
+    function isVideo() {
+      return request.resource.contentType.matches('video/(mp4|quicktime|3gpp|webm|x-matroska)');
+    }
+
+    function isAudio() {
+      return request.resource.contentType.matches('audio/(mp4|mpeg|aac|m4a|x-m4a|ogg|wav)');
+    }
+
+    function isDocument() {
+      return request.resource.contentType.matches('application/.*|text/plain');
+    }
+
+    // Kullanıcı avatarı: sahibi yazar; kendisi ve partneri okuyabilir.
+    match /users/{userId}/avatar/{file} {
+      allow read: if signedIn() && (
+        request.auth.uid == userId
+        || (firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.coupleId != null
+            && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.coupleId
+               == firestore.get(/databases/(default)/documents/users/$(userId)).data.coupleId)
+      );
+      allow create: if signedIn() && request.auth.uid == userId && isImage() && underMb(10);
+      allow delete: if signedIn() && request.auth.uid == userId;
+      allow update: if false;
+    }
+
+    // Kapak fotoğrafı
+    match /couples/{coupleId}/cover/{file} {
+      allow read: if isMember(coupleId);
+      allow create: if isMember(coupleId) && isImage() && underMb(15);
+      allow update, delete: if false;
+    }
+
+    // Anı kapsülü: içerik açılma zamanına kadar yalnızca oluşturana açık.
+    match /couples/{coupleId}/capsules/{capsuleId}/{file} {
+      function capsule() {
+        return firestore.get(/databases/(default)/documents/couples/$(coupleId)/capsules/$(capsuleId)).data;
+      }
+      allow read: if isMember(coupleId)
+        && (capsule().createdBy == request.auth.uid || request.time >= capsule().openAt);
+      // Yükleme, kapsül belgesi oluşturulmadan (kilitlemeden) önce yapılır.
+      allow create: if isMember(coupleId)
+        && !firestore.exists(/databases/(default)/documents/couples/$(coupleId)/capsules/$(capsuleId))
+        && (isImage() || isVideo() || isAudio())
+        && underMb(100);
+      allow update, delete: if false;
+    }
+
+    // Sohbet, anılar ve hikâye medyası.
+    match /couples/{coupleId}/{section}/{docId}/{file} {
+      allow read: if section in ['chat', 'memories', 'timeline'] && isMember(coupleId);
+
+      allow create: if isMember(coupleId) && (
+        (section == 'chat' && ((isImage() && underMb(25)) || (isVideo() && underMb(100))
+                               || (isAudio() && underMb(25)) || (isDocument() && underMb(50))))
+        || (section == 'memories' && ((isImage() && underMb(25)) || (isVideo() && underMb(100))))
+        || (section == 'timeline' && isImage() && underMb(25))
+      );
+
+      allow delete: if section in ['memories', 'timeline'] && isMember(coupleId);
+      allow update: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

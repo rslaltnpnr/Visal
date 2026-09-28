@@ -1,0 +1,4 @@
+storePassword=CHANGE_ME
+keyPassword=CHANGE_ME
+keyAlias=visal
+storeFile=/absolute/path/to/visal-release.jks
