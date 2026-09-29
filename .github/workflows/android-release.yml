@@ -31,13 +31,34 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Firebase yapılandırması (varsa)
+      # Push bildirimleri (isteğe bağlı): Firebase konsolundan indirilen
+      # google-services.json içeriği GOOGLE_SERVICES_JSON secret'ı olarak verilir;
+      # gerekli değerler çıkarılıp --dart-define ile derlemeye aktarılır.
+      - name: Firebase (push) yapılandırması
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
-          FIREBASE_OPTIONS_DART: ${{ secrets.FIREBASE_OPTIONS_DART }}
         run: |
-          if [ -n "$GOOGLE_SERVICES_JSON" ]; then echo "$GOOGLE_SERVICES_JSON" > android/app/google-services.json; fi
-          if [ -n "$FIREBASE_OPTIONS_DART" ]; then echo "$FIREBASE_OPTIONS_DART" > lib/firebase_options.dart; fi
+          if [ -z "$GOOGLE_SERVICES_JSON" ]; then
+            echo "::notice::GOOGLE_SERVICES_JSON yok; push bildirimleri kapalı derleniyor."
+            exit 0
+          fi
+          PKG=app.visal.visal
+          J=$(printf '%s' "$GOOGLE_SERVICES_JSON")
+          CLIENT=$(echo "$J" | jq -c --arg p "$PKG" '[.client[] | select(.client_info.android_client_info.package_name == $p)][0]')
+          if [ "$CLIENT" = "null" ] || [ -z "$CLIENT" ]; then
+            echo "::error::google-services.json içinde '$PKG' paketli Android uygulaması yok. Firebase'e bu paket adıyla uygulama ekleyin."
+            exit 1
+          fi
+          {
+            echo "FIREBASE_DEFINES<<EOF_DEFINES"
+            echo "--dart-define=FIREBASE_PROJECT_ID=$(echo "$J" | jq -r '.project_info.project_id')"
+            echo "--dart-define=FIREBASE_SENDER_ID=$(echo "$J" | jq -r '.project_info.project_number')"
+            echo "--dart-define=FIREBASE_STORAGE_BUCKET=$(echo "$J" | jq -r '.project_info.storage_bucket // empty')"
+            echo "--dart-define=FIREBASE_APP_ID_ANDROID=$(echo "$CLIENT" | jq -r '.client_info.mobilesdk_app_id')"
+            echo "--dart-define=FIREBASE_API_KEY_ANDROID=$(echo "$CLIENT" | jq -r '.api_key[0].current_key')"
+            echo "EOF_DEFINES"
+          } >> "$GITHUB_ENV"
+          echo "Firebase push yapılandırması eklendi."
 
       - run: flutter pub get
       - run: flutter analyze
@@ -57,6 +78,7 @@ jobs:
           [ -n "$SUPABASE_ANON_KEY" ] && ARGS+=("--dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY")
           [ -n "$GOOGLE_SERVER_CLIENT_ID" ] && ARGS+=("--dart-define=GOOGLE_SERVER_CLIENT_ID=$GOOGLE_SERVER_CLIENT_ID")
           [ -n "$TENOR_API_KEY" ] && ARGS+=("--dart-define=TENOR_API_KEY=$TENOR_API_KEY")
+          while IFS= read -r d; do if [ -n "$d" ]; then ARGS+=("$d"); fi; done <<< "${FIREBASE_DEFINES:-}"
           flutter build apk --release "${ARGS[@]}"
 
       - name: APK'yı adlandır

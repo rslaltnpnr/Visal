@@ -110,11 +110,11 @@ bash supabase/tests/run.sh
 4. **Auth ayarları:** Authentication → URL Configuration → Redirect URLs'e `visal://auth-callback` ekleyin
    (e-posta doğrulama ve şifre sıfırlama uygulamaya döner). Hızlı test için Authentication → Providers → Email
    altında "Confirm email" kapatılabilir.
-5. **Push (isteğe bağlı):** Firebase'de (ücretsiz Spark planı yeterli) Android uygulaması `app.visal.visal` ekleyip
-   `google-services.json` içeriğini `GOOGLE_SERVICES_JSON`, `flutterfire configure` çıktısı `firebase_options.dart`
-   içeriğini `FIREBASE_OPTIONS_DART` secret'ı olarak ekleyin. Proje Ayarları → Hizmet hesapları → yeni özel anahtar
-   JSON'unu `FCM_SERVICE_ACCOUNT` secret'ı yapın ve Supabase Deploy'u yeniden çalıştırın. Firebase olmadan
-   bildirimler uygulama içi bildirim kutusunda görünür.
+5. **Push (isteğe bağlı):** Firebase'de (ücretsiz Spark planı yeterli) paket adı `app.visal.visal` olan bir Android
+   uygulaması ekleyin; indirilen `google-services.json` içeriğini `GOOGLE_SERVICES_JSON` secret'ı yapın (APK derlemesi
+   gerekli değerleri buradan alır). Proje Ayarları → Hizmet hesapları → **Yeni özel anahtar oluştur** ile inen JSON'u
+   `FCM_SERVICE_ACCOUNT` secret'ı yapın ve Supabase Deploy'u yeniden çalıştırın (`SUPABASE_ACCESS_TOKEN` Edge Function
+   ve secret yazma yetkisine sahip olmalı). Firebase olmadan bildirimler uygulama içi bildirim kutusunda görünür.
 6. **Google ile giriş (isteğe bağlı):** Google Cloud'da OAuth istemcisi oluşturup Supabase → Providers → Google'a
    ekleyin; web istemci kimliğini `GOOGLE_SERVER_CLIENT_ID` değişkeni olarak verin.
 7. **Apple ile giriş (iOS):** Apple Developer'da "Sign in with Apple" yeteneğini açın, Supabase'de Apple sağlayıcısını
