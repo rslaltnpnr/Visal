@@ -97,7 +97,10 @@ bash supabase/tests/run.sh
    ```
 3. **Veritabanını kurun:** GitHub *Secrets* altına ekleyin:
    `SUPABASE_ACCESS_TOKEN` (supabase.com/dashboard/account/tokens), `SUPABASE_DB_PASSWORD`, `SUPABASE_PROJECT_REF`.
-   Ardından **Actions → Supabase Deploy → Run workflow**. İş; testleri çalıştırır, göçleri uygular, `send-push`
+   Ardından **Actions → Supabase Deploy → Run workflow**.
+   *Şifresiz alternatif:* `supabase/setup_all.sql` dosyasının tamamını Supabase → **SQL Editor**'e yapıştırıp
+   **Run**'a basın (dosya `bash supabase/build_setup_sql.sh > supabase/setup_all.sql` ile üretilir). Bu durumda
+   `SUPABASE_DB_PASSWORD` secret'ı gerekmez; iş akışı yalnızca Edge Function'ı yükler. İş; testleri çalıştırır, göçleri uygular, `send-push`
    fonksiyonunu yükler ve push uç noktasını yapılandırır. Elle kurmak isterseniz:
    ```bash
    supabase link --project-ref <ref>
