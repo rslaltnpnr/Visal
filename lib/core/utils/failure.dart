@@ -51,7 +51,17 @@ class AppFailure implements Exception {
     }
     if (code == 'same_password') return 'Yeni şifre eskisiyle aynı olamaz.';
     if (code == 'cancelled') return 'İşlem iptal edildi.';
-    return 'Giriş yapılamadı. Tekrar deneyin.';
+    // Google / Apple (ID token) girişinde sunucu yapılandırma hataları.
+    if (msg.contains('provider') && msg.contains('not enabled')) {
+      return 'Bu giriş yöntemi sunucuda açık değil (Supabase → Authentication → Providers).';
+    }
+    if (msg.contains('audience')) {
+      return 'Google istemci kimliği sunucuyla eşleşmiyor (Supabase Google ayarındaki Client IDs).';
+    }
+    if (msg.contains('nonce')) return 'Google oturum doğrulaması başarısız (nonce).';
+    // Tanınmayan hata: sorunu teşhis edebilmek için sunucunun mesajı da gösterilir.
+    final detail = e.message.trim();
+    return detail.isEmpty ? 'Giriş yapılamadı. Tekrar deneyin.' : 'Giriş yapılamadı: $detail';
   }
 
   @override
