@@ -25,6 +25,7 @@ Edge Functions). Push bildirimleri için yalnızca Firebase Cloud Messaging kull
 | **Ruh hali** | Günde bir, 8 emoji; partner görebilir (gizlenebilir), analiz yapılmaz |
 | **Planlar** | Ortak takvim (kategori, saat, konum, not, hatırlatma, tekrar, renk), görevler (Ben/Partnerim/İkimiz), ortak hedefler (ilerleme çubuğu) |
 | **Profil / Ayarlar** | Profil, partner, ilişki başlangıcı, yıldönümü, doğum günü; bildirimler, gizlilik (çevrimiçi, son görülme, okundu, bildirim içeriği gizli modu, ruh hali), tema (Açık / VISAL Dark / Sistem), PIN + parmak izi / Face ID kilidi, partner yönetimi, verileri indir (JSON), hesabı sil |
+| **Ana ekran widget'ları (Android)** | "Birlikte" sayacı (gün + partnerin ruh hali) ve uygulamayı açmadan ❤️ gönderen aşk dokunuşu; uygulama kilidi veya gizli bildirim modunda isim/ruh hali gizlenir |
 | **Bildirimler (FCM)** | Yeni mesaj, partner seni düşünüyor, yeni anı, kapsül açıldı, yaklaşan özel gün, günün sorusu; gizli modda "VISAL — Yeni mesaj" |
 
 ## Mimari

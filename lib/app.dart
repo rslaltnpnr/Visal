@@ -14,6 +14,7 @@ import 'core/services/supabase_providers.dart';
 import 'core/session/session_providers.dart';
 import 'core/theme/app_theme.dart';
 import 'features/settings/presentation/lock_screen.dart';
+import 'features/widgets/home_widget_service.dart';
 
 class VisalApp extends ConsumerWidget {
   const VisalApp({super.key});
@@ -58,6 +59,7 @@ class _SessionEffectsState extends ConsumerState<SessionEffects>
     with WidgetsBindingObserver {
   StreamSubscription<String>? _tapSub;
   StreamSubscription<AuthState>? _authSub;
+  ProviderSubscription<HomeWidgetData>? _widgetSub;
   String? _registeredUid;
 
   @override
@@ -66,6 +68,13 @@ class _SessionEffectsState extends ConsumerState<SessionEffects>
     WidgetsBinding.instance.addObserver(this);
     final notifications = ref.read(notificationServiceProvider);
     notifications.init();
+    // Ana ekran widget'ları (sayaç, ❤️) oturum ve çift durumunu izler.
+    HomeWidgetService.init();
+    _widgetSub = ref.listenManual(
+      homeWidgetDataProvider,
+      (_, next) => HomeWidgetService.push(next),
+      fireImmediately: true,
+    );
     // Şifre sıfırlama bağlantısıyla dönüldüğünde yeni şifre ekranı açılır.
     _authSub = ref.read(supabaseProvider).auth.onAuthStateChange.listen((state) {
       if (state.event == AuthChangeEvent.passwordRecovery) {
@@ -91,11 +100,16 @@ class _SessionEffectsState extends ConsumerState<SessionEffects>
     WidgetsBinding.instance.removeObserver(this);
     _tapSub?.cancel();
     _authSub?.cancel();
+    _widgetSub?.close();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // ❤️ widget'ı arka planda oturumu yenilemiş olabilir.
+      resyncSessionFromStorage(ref.read(sharedPreferencesProvider), ref.read(supabaseProvider).auth);
+    }
     final user = ref.read(currentUserProvider).value;
     final presence = ref.read(presenceServiceProvider);
     if (user == null || !user.isPaired) return;
