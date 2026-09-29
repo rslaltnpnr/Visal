@@ -10,9 +10,9 @@ abstract final class Env {
   static const supabaseUrl = String.fromEnvironment('SUPABASE_URL', defaultValue: _defaultUrl);
   static const supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: _defaultAnonKey);
 
-  // Supabase projesi oluşturulunca doldurulur.
-  static const _defaultUrl = '';
-  static const _defaultAnonKey = '';
+  // VISAL Supabase projesi (publishable anahtar istemcide bulunabilir).
+  static const _defaultUrl = 'https://ugjmnbylcuxovzrqoftq.supabase.co';
+  static const _defaultAnonKey = 'sb_publishable_O4IJR3CKuxopBRKYYnm7gw_x5s0MNSS';
 
   static bool get supabaseConfigured => supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty;
 
