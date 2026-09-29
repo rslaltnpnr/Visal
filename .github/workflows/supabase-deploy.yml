@@ -43,6 +43,7 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
       PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      FCM_SERVICE_ACCOUNT: ${{ secrets.FCM_SERVICE_ACCOUNT }}
     steps:
       - uses: actions/checkout@v4
 
@@ -62,6 +63,14 @@ jobs:
             echo "::notice::SUPABASE_DB_PASSWORD yok; veritabanı göçleri atlandı."
             echo "db=false" >> "$GITHUB_OUTPUT"
           fi
+          # Push (FCM) yapılandırılmadıysa Edge Function gereksizdir: bildirimler
+          # yalnızca uygulama içi bildirim kutusuna yazılır.
+          if [ -n "$FCM_SERVICE_ACCOUNT" ]; then
+            echo "push=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::FCM_SERVICE_ACCOUNT yok; push fonksiyonu atlandı."
+            echo "push=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: supabase/setup-cli@v1
         if: steps.check.outputs.ready == 'true'
@@ -78,25 +87,23 @@ jobs:
           fi
 
       - name: Edge Function secret'ları
-        if: steps.check.outputs.ready == 'true'
-        env:
-          FCM_SERVICE_ACCOUNT: ${{ secrets.FCM_SERVICE_ACCOUNT }}
+        if: steps.check.outputs.ready == 'true' && steps.check.outputs.push == 'true'
         run: |
           PUSH_SECRET=$(openssl rand -hex 32)
           echo "::add-mask::$PUSH_SECRET"
           echo "PUSH_SECRET=$PUSH_SECRET" >> "$GITHUB_ENV"
-          ARGS=("PUSH_SECRET=$PUSH_SECRET")
-          if [ -n "$FCM_SERVICE_ACCOUNT" ]; then
-            ARGS+=("FCM_SERVICE_ACCOUNT=$FCM_SERVICE_ACCOUNT")
+          if ! supabase secrets set --project-ref "$PROJECT_REF" \
+               "PUSH_SECRET=$PUSH_SECRET" "FCM_SERVICE_ACCOUNT=$FCM_SERVICE_ACCOUNT" > /dev/null; then
+            echo "::error::Edge Function secret'ları yazılamadı. SUPABASE_ACCESS_TOKEN tam yetkili olmalı (supabase.com/dashboard/account/tokens → Generate new token, izin kısıtlaması olmadan)."
+            exit 1
           fi
-          supabase secrets set --project-ref "$PROJECT_REF" "${ARGS[@]}" > /dev/null
 
       - name: send-push fonksiyonu
-        if: steps.check.outputs.ready == 'true'
+        if: steps.check.outputs.ready == 'true' && steps.check.outputs.push == 'true'
         run: supabase functions deploy send-push --project-ref "$PROJECT_REF" --no-verify-jwt --use-api
 
       - name: Push uç noktasını veritabanına yaz
-        if: steps.check.outputs.ready == 'true'
+        if: steps.check.outputs.ready == 'true' && steps.check.outputs.push == 'true'
         run: |
           KEYS=$(supabase projects api-keys --project-ref "$PROJECT_REF" -o json)
           # Eski (JWT) service_role anahtarı tercih edilir; yoksa yeni secret anahtar.
