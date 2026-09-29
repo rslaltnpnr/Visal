@@ -1,6 +1,5 @@
 // Ekran önizlemeleri (tasarım karşılaştırması için):
 //   flutter test tool/render_screens_test.dart --update-goldens
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -68,7 +67,7 @@ final _overrides = [
     ),
   ]),
   myMoodProvider.overrideWith((ref) => Stream.value(null)),
-  partnerMoodProvider.overrideWith((ref) => Stream.value(Mood(uid: 'u2', day: 'x', emoji: '😊', createdAt: Timestamp.now().toDate()))),
+  partnerMoodProvider.overrideWith((ref) => Stream.value(Mood(uid: 'u2', day: 'x', emoji: '😊', createdAt: DateTime.now()))),
   onThisDayProvider.overrideWith((ref) => Stream.value(const [])),
 ];
 

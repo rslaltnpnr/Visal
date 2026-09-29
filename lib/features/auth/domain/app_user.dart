@@ -1,9 +1,7 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 import '../../../core/utils/date_x.dart';
 import '../../settings/domain/user_settings.dart';
 
-/// users/{uid}
+/// profiles tablosu (yalnızca sahibine açık).
 class AppUser {
   const AppUser({
     required this.uid,
@@ -35,21 +33,16 @@ class AppUser {
 
   String get firstName => name.trim().split(' ').first;
 
-  factory AppUser.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data() ?? const {};
-    return AppUser(
-      uid: doc.id,
-      name: d['name'] as String? ?? '',
-      email: d['email'] as String? ?? '',
-      photoUrl: d['photoUrl'] as String?,
-      coupleId: d['coupleId'] as String?,
-      birthday: tsToDate(d['birthday']),
-      createdAt: tsToDate(d['createdAt']),
-      lastSeen: tsToDate(d['lastSeen']),
-      settings: UserSettings.fromMap(
-        (d['settings'] as Map?)?.cast<String, dynamic>(),
-      ),
-      chatLastReadAt: tsToDate(d['chatLastReadAt']),
-    );
-  }
+  factory AppUser.fromRow(Map<String, dynamic> d) => AppUser(
+        uid: d['id'] as String,
+        name: d['name'] as String? ?? '',
+        email: d['email'] as String? ?? '',
+        photoUrl: d['photo_url'] as String?,
+        coupleId: d['couple_id'] as String?,
+        birthday: tsToDate(d['birthday']),
+        createdAt: tsToDate(d['created_at']),
+        lastSeen: tsToDate(d['last_seen']),
+        settings: UserSettings.fromMap((d['settings'] as Map?)?.cast<String, dynamic>()),
+        chatLastReadAt: tsToDate(d['chat_last_read_at']),
+      );
 }

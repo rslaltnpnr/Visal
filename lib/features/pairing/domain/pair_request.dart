@@ -1,10 +1,8 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 import '../../../core/utils/date_x.dart';
 
 enum PairRequestStatus { pending, accepted, rejected, cancelled, expired }
 
-/// pairRequests/{id} — yalnızca Cloud Functions yazar.
+/// pair_requests tablosu — yalnızca sunucu fonksiyonları yazar.
 class PairRequest {
   const PairRequest({
     required this.id,
@@ -26,22 +24,19 @@ class PairRequest {
   final PairRequestStatus status;
   final DateTime? createdAt;
 
-  factory PairRequest.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data() ?? const {};
-    return PairRequest(
-      id: doc.id,
-      fromUid: d['fromUid'] as String? ?? '',
-      fromName: d['fromName'] as String? ?? '',
-      fromPhoto: d['fromPhoto'] as String?,
-      toUid: d['toUid'] as String? ?? '',
-      toName: d['toName'] as String? ?? '',
-      status: PairRequestStatus.values.firstWhere(
-        (s) => s.name == d['status'],
-        orElse: () => PairRequestStatus.pending,
-      ),
-      createdAt: tsToDate(d['createdAt']),
-    );
-  }
+  factory PairRequest.fromRow(Map<String, dynamic> d) => PairRequest(
+        id: d['id'] as String,
+        fromUid: d['from_uid'] as String? ?? '',
+        fromName: d['from_name'] as String? ?? '',
+        fromPhoto: d['from_photo'] as String?,
+        toUid: d['to_uid'] as String? ?? '',
+        toName: d['to_name'] as String? ?? '',
+        status: PairRequestStatus.values.firstWhere(
+          (s) => s.name == d['status'],
+          orElse: () => PairRequestStatus.pending,
+        ),
+        createdAt: tsToDate(d['created_at']),
+      );
 }
 
 class Invite {

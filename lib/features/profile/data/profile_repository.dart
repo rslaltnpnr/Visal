@@ -1,74 +1,84 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
-import '../../../core/services/firebase_providers.dart';
 import '../../../core/services/media_service.dart';
+import '../../../core/services/supabase_providers.dart';
 import '../../../core/session/session_providers.dart';
+import '../../../core/utils/date_x.dart';
 import '../../../core/utils/failure.dart';
 import '../../settings/domain/user_settings.dart';
 
 final profileRepositoryProvider = Provider<ProfileRepository>((ref) => ProfileRepository(
-      ref.watch(firestoreProvider),
-      ref.watch(firebaseAuthProvider),
-      ref.watch(functionsProvider),
+      ref.watch(supabaseProvider),
       ref.watch(mediaServiceProvider),
       ref.watch(currentUidProvider),
       ref.watch(coupleIdProvider),
     ));
 
 class ProfileRepository {
-  ProfileRepository(this._db, this._auth, this._functions, this._media, this.uid, this.coupleId);
+  ProfileRepository(this._db, this._media, this.uid, this.coupleId);
 
-  final FirebaseFirestore _db;
-  final FirebaseAuth _auth;
-  final FirebaseFunctions _functions;
+  final SupabaseClient _db;
   final MediaService _media;
   final String? uid;
   final String? coupleId;
 
-  DocumentReference<Map<String, dynamic>> get _user => _db.userDoc(uid!);
+  Future<void> _guard(Future<void> Function() op) async {
+    try {
+      await op();
+    } catch (e) {
+      throw AppFailure.from(e);
+    }
+  }
 
-  DocumentReference<Map<String, dynamic>>? get _profile =>
-      coupleId == null ? null : _db.coupleCol(coupleId!, 'profiles').doc(uid);
-
-  /// users/{uid} ve partnerin gördüğü profil kopyasını birlikte günceller.
-  Future<void> updateProfile({String? name, DateTime? birthday, bool clearBirthday = false, String? photoUrl}) async {
+  /// Partnerin gördüğü kopya (couple_members) tetikleyiciyle eşitlenir.
+  Future<void> updateProfile({String? name, DateTime? birthday, bool clearBirthday = false, String? photoUrl}) {
     final data = <String, dynamic>{
       'name': ?name?.trim(),
-      if (birthday != null) 'birthday': Timestamp.fromDate(birthday),
+      if (birthday != null) 'birthday': dbDate(birthday),
       if (clearBirthday) 'birthday': null,
-      'photoUrl': ?photoUrl,
+      'photo_url': ?photoUrl,
     };
-    if (data.isEmpty) return;
-    final batch = _db.batch()..update(_user, data);
-    final profile = _profile;
-    if (profile != null) batch.set(profile, data, SetOptions(merge: true));
-    await batch.commit();
-    if (name != null) await _auth.currentUser?.updateDisplayName(name.trim());
+    if (data.isEmpty) return Future.value();
+    return _guard(() async {
+      await _db.from('profiles').update(data).eq('id', uid!);
+      if (name != null) await _db.auth.updateUser(UserAttributes(data: {'name': name.trim()}));
+    });
   }
 
   Future<void> uploadAvatar(PickedMedia media) async {
-    final up = await _media.upload(media, folder: 'users/$uid/avatar');
+    final old = await _db.from('profiles').select('photo_url').eq('id', uid!).maybeSingle();
+    final up = await _media.upload(media, folder: '$uid/${const Uuid().v4()}', bucket: MediaService.avatarBucket);
     await updateProfile(photoUrl: up.url);
-  }
-
-  Future<void> updatePrivacy(PrivacySettings privacy) async {
-    final batch = _db.batch()..update(_user, {'settings.privacy': privacy.toMap()});
-    final profile = _profile;
-    if (profile != null) {
-      batch.set(profile, {'moodVisible': privacy.moodVisible}, SetOptions(merge: true));
+    // Eski avatar dosyaları temizlenir (yeni klasör hariç).
+    if (old?['photo_url'] != null) {
+      final folder = up.path.substring(0, up.path.lastIndexOf('/'));
+      final items = await _db.storage.from(MediaService.avatarBucket).list(path: uid!).catchError((_) => <FileObject>[]);
+      for (final item in items) {
+        final path = '$uid/${item.name}';
+        if (item.id == null && path != folder) {
+          await _media.deleteFolder(path, bucket: MediaService.avatarBucket);
+        }
+      }
     }
-    await batch.commit();
   }
 
-  Future<void> updateNotifications(NotificationSettings n) =>
-      _user.update({'settings.notifications': n.toMap()});
+  /// settings jsonb'nin bir bölümünü değiştirir, diğerlerini korur.
+  Future<void> _updateSettings(String key, Map<String, dynamic> value) => _guard(() async {
+        final row = await _db.from('profiles').select('settings').eq('id', uid!).single();
+        final settings = Map<String, dynamic>.from((row['settings'] as Map?) ?? const {});
+        settings[key] = value;
+        await _db.from('profiles').update({'settings': settings}).eq('id', uid!);
+      });
+
+  Future<void> updatePrivacy(PrivacySettings privacy) => _updateSettings('privacy', privacy.toMap());
+
+  Future<void> updateNotifications(NotificationSettings n) => _updateSettings('notifications', n.toMap());
 
   // ---------- Çift ----------
 
@@ -77,30 +87,42 @@ class ProfileRepository {
     DateTime? anniversaryDate,
     bool clearAnniversary = false,
   }) {
-    return _db.coupleDoc(coupleId!).update({
-      if (relationshipStartDate != null) 'relationshipStartDate': Timestamp.fromDate(relationshipStartDate),
-      if (anniversaryDate != null) 'anniversaryDate': Timestamp.fromDate(anniversaryDate),
-      if (clearAnniversary) 'anniversaryDate': null,
-    });
+    final data = {
+      if (relationshipStartDate != null) 'relationship_start_date': dbDate(relationshipStartDate),
+      if (anniversaryDate != null) 'anniversary_date': dbDate(anniversaryDate),
+      if (clearAnniversary) 'anniversary_date': null,
+    };
+    if (data.isEmpty) return Future.value();
+    return _guard(() => _db.from('couples').update(data).eq('id', coupleId!));
   }
 
   Future<void> setCoverPhoto(PickedMedia media) async {
-    final up = await _media.upload(media, folder: 'couples/$coupleId/cover');
-    await _db.coupleDoc(coupleId!).update({'coverPhoto': up.url, 'coverPath': up.path});
+    final cid = coupleId!;
+    final old = await _db.from('couples').select('cover_path').eq('id', cid).maybeSingle();
+    final up = await _media.upload(media, folder: '$cid/cover/${const Uuid().v4()}');
+    await _guard(() => _db.from('couples').update({'cover_photo': up.url, 'cover_path': up.path}).eq('id', cid));
+    await _deleteCoverFile(old?['cover_path'] as String?);
   }
 
-  Future<void> removeCoverPhoto() =>
-      _db.coupleDoc(coupleId!).update({'coverPhoto': null, 'coverPath': null});
+  Future<void> removeCoverPhoto() async {
+    final cid = coupleId!;
+    final old = await _db.from('couples').select('cover_path').eq('id', cid).maybeSingle();
+    await _guard(() => _db.from('couples').update({'cover_photo': null, 'cover_path': null}).eq('id', cid));
+    await _deleteCoverFile(old?['cover_path'] as String?);
+  }
+
+  Future<void> _deleteCoverFile(String? path) async {
+    if (path == null || path.isEmpty) return;
+    await _media.deleteFolder(path.substring(0, path.lastIndexOf('/')));
+  }
 
   // ---------- Hesap ----------
 
-  /// KVKK/GDPR: verilerin JSON kopyası (Cloud Function hazırlar).
+  /// KVKK/GDPR: verilerin JSON kopyası (veritabanı fonksiyonu hazırlar).
   Future<File> exportData() async {
     try {
-      final res = await _functions
-          .httpsCallable('exportUserData', options: HttpsCallableOptions(timeout: const Duration(minutes: 2)))
-          .call<Map<String, dynamic>>();
-      final json = const JsonEncoder.withIndent('  ').convert(res.data);
+      final data = await _db.rpc<dynamic>('export_user_data');
+      final json = const JsonEncoder.withIndent('  ').convert(data);
       final dir = await getTemporaryDirectory();
       final file = File('${dir.path}/visal-verilerim-${DateTime.now().millisecondsSinceEpoch}.json');
       await file.writeAsString(json);
@@ -110,29 +132,30 @@ class ProfileRepository {
     }
   }
 
-  /// Hesabı ve çift alanını kalıcı olarak siler (Cloud Function).
+  /// Hesabı ve çift alanını kalıcı olarak siler. Dosyalar önce silinir;
+  /// hesap silindikten sonra depolama kuralları erişime izin vermez.
   Future<void> deleteAccount() async {
+    final cid = coupleId;
+    if (cid != null) await _media.deleteFolder(cid);
+    await _media.deleteFolder(uid!, bucket: MediaService.avatarBucket);
+    await _guard(() => _db.rpc<void>('delete_account'));
     try {
-      await _functions
-          .httpsCallable('deleteAccount', options: HttpsCallableOptions(timeout: const Duration(minutes: 3)))
-          .call<void>();
-      await _auth.signOut();
-    } catch (e) {
-      throw AppFailure.from(e);
-    }
+      await _db.auth.signOut(scope: SignOutScope.local);
+    } catch (_) {}
   }
 
+  /// Mevcut şifre doğrulanır, ardından yenisi kaydedilir.
   Future<void> changePassword(String current, String next) async {
-    final user = _auth.currentUser;
-    if (user == null || user.email == null) return;
-    try {
-      await user.reauthenticateWithCredential(
-        EmailAuthProvider.credential(email: user.email!, password: current),
-      );
-      await user.updatePassword(next);
-    } catch (e) {
-      throw AppFailure.from(e);
-    }
+    final email = _db.auth.currentUser?.email;
+    if (email == null) return;
+    await _guard(() async {
+      try {
+        await _db.auth.signInWithPassword(email: email, password: current);
+      } on AuthException {
+        throw const AppFailure('Mevcut şifren hatalı.');
+      }
+      await _db.auth.updateUser(UserAttributes(password: next));
+    });
   }
 }
 
@@ -157,33 +180,33 @@ class InboxItem {
   final DateTime? createdAt;
   final bool read;
 
-  factory InboxItem.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data() ?? const {};
-    final ts = d['createdAt'];
-    return InboxItem(
-      id: doc.id,
-      type: d['type'] as String? ?? '',
-      title: d['title'] as String? ?? '',
-      body: d['body'] as String? ?? '',
-      route: d['route'] as String?,
-      createdAt: ts is Timestamp ? ts.toDate() : null,
-      read: d['read'] as bool? ?? false,
-    );
-  }
+  factory InboxItem.fromRow(Map<String, dynamic> d) => InboxItem(
+        id: d['id'] as String,
+        type: d['type'] as String? ?? '',
+        title: d['title'] as String? ?? '',
+        body: d['body'] as String? ?? '',
+        route: d['route'] as String?,
+        createdAt: tsToDate(d['created_at']),
+        read: d['read'] as bool? ?? false,
+      );
 }
 
-/// users/{uid}/inbox — Cloud Functions bildirim gönderirken yazar.
+/// Bildirim geçmişi: sunucu bildirim gönderirken yazar.
 final inboxProvider = StreamProvider.autoDispose<List<InboxItem>>((ref) {
   final uid = ref.watch(currentUidProvider);
   if (uid == null) return Stream.value(const []);
-  return ref
-      .watch(firestoreProvider)
-      .userDoc(uid)
-      .collection('inbox')
-      .orderBy('createdAt', descending: true)
-      .limit(50)
-      .snapshots()
-      .map((s) => s.docs.map(InboxItem.fromDoc).toList());
+  final db = ref.watch(supabaseProvider);
+  return watchQuery(
+    db,
+    ref.watch(tableBusProvider),
+    table: 'inbox',
+    column: 'user_id',
+    value: uid,
+    fetch: () async {
+      final rows = await db.from('inbox').select().eq('user_id', uid).order('created_at', ascending: false).limit(50);
+      return rows.map(InboxItem.fromRow).toList();
+    },
+  );
 });
 
 final unreadInboxProvider = Provider.autoDispose<bool>(
@@ -191,14 +214,8 @@ final unreadInboxProvider = Provider.autoDispose<bool>(
 );
 
 Future<void> markInboxRead(WidgetRef ref, List<InboxItem> items) async {
-  final uid = ref.read(currentUidProvider);
-  if (uid == null) return;
-  final db = ref.read(firestoreProvider);
-  final unread = items.where((i) => !i.read).toList();
+  final unread = items.where((i) => !i.read).map((i) => i.id).toList();
   if (unread.isEmpty) return;
-  final batch = db.batch();
-  for (final i in unread) {
-    batch.update(db.userDoc(uid).collection('inbox').doc(i.id), {'read': true});
-  }
-  await batch.commit();
+  await ref.read(supabaseProvider).from('inbox').update({'read': true}).inFilter('id', unread);
+  ref.read(tableBusProvider).bump('inbox');
 }

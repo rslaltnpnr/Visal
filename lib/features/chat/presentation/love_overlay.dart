@@ -12,7 +12,10 @@ import '../domain/message.dart';
 
 final _latestLoveProvider = StreamProvider<Message?>((ref) {
   if (ref.watch(coupleIdProvider) == null) return Stream.value(null);
-  return ref.watch(chatRepositoryProvider).watchLatestLove();
+  return ref
+      .watch(chatRepositoryProvider)
+      .watchLatest(5)
+      .map((list) => list.where((m) => m.type == MessageType.love).firstOrNull);
 });
 
 /// Partner hızlı sevgi mesajı gönderdiğinde uygulamanın her yerinde

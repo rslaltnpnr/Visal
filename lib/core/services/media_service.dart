@@ -3,19 +3,18 @@ import 'dart:typed_data';
 
 import 'package:fc_native_video_thumbnail/fc_native_video_thumbnail.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import 'package:video_player/video_player.dart';
 
-import '../demo/demo_mode.dart';
 import '../utils/failure.dart';
-import 'firebase_providers.dart';
+import 'supabase_providers.dart';
 
 enum MediaKind { image, video, audio, file }
 
@@ -96,13 +95,21 @@ class UploadedMedia {
 }
 
 final mediaServiceProvider = Provider<MediaService>(
-  (ref) => MediaService(ref.watch(storageProvider)),
+  (ref) => MediaService(ref.watch(supabaseProvider).storage),
 );
 
+/// Dosyalar Supabase Storage'da özel (private) kovalarda tutulur. Görüntüleme
+/// için Storage erişim kurallarından geçen uzun ömürlü imzalı bağlantı üretilir
+/// ve kayda yazılır; kapsül dosyaları ise yalnızca yol olarak saklanır ve
+/// açılma zamanında imzalanır.
 class MediaService {
   MediaService(this._storage);
 
-  final FirebaseStorage _storage;
+  final SupabaseStorageClient _storage;
+
+  static const mediaBucket = 'media';
+  static const avatarBucket = 'avatars';
+  static const _longLived = 60 * 60 * 24 * 365 * 10; // 10 yıl
   final _picker = ImagePicker();
   static const _uuid = Uuid();
 
@@ -163,19 +170,15 @@ class MediaService {
   Future<UploadedMedia> upload(
     PickedMedia media, {
     required String folder,
+    String bucket = mediaBucket,
     void Function(double progress)? onProgress,
   }) async {
     try {
       return switch (media.kind) {
-        MediaKind.image => await _uploadImage(media, folder, onProgress),
-        MediaKind.video => await _uploadVideo(media, folder, onProgress),
-        MediaKind.audio => await _uploadRaw(
-            media,
-            folder,
-            onProgress,
-            mime: 'audio/mp4',
-          ),
-        MediaKind.file => await _uploadRaw(media, folder, onProgress),
+        MediaKind.image => await _uploadImage(media, folder, bucket, onProgress),
+        MediaKind.video => await _uploadVideo(media, folder, bucket, onProgress),
+        MediaKind.audio => await _uploadRaw(media, folder, bucket, onProgress, mime: 'audio/mp4'),
+        MediaKind.file => await _uploadRaw(media, folder, bucket, onProgress),
       };
     } catch (e) {
       throw AppFailure.from(e);
@@ -185,6 +188,7 @@ class MediaService {
   Future<UploadedMedia> _uploadImage(
     PickedMedia media,
     String folder,
+    String bucket,
     void Function(double)? onProgress,
   ) async {
     final id = _uuid.v4();
@@ -207,10 +211,10 @@ class MediaService {
     final dims = await _dimensions(bytes);
 
     final path = '$folder/$id.jpg';
-    final url = await _putData(bytes, path, 'image/jpeg', (v) => onProgress?.call(v * 0.9));
+    final url = await _putData(bucket, bytes, path, 'image/jpeg', (v) => onProgress?.call(v * 0.9));
     String? thumbUrl;
     if (thumb != null) {
-      thumbUrl = await _putData(thumb, '$folder/${id}_thumb.jpg', 'image/jpeg', null);
+      thumbUrl = await _putData(bucket, thumb, '$folder/${id}_thumb.jpg', 'image/jpeg', null);
     }
     onProgress?.call(1);
     return UploadedMedia(
@@ -229,6 +233,7 @@ class MediaService {
   Future<UploadedMedia> _uploadVideo(
     PickedMedia media,
     String folder,
+    String bucket,
     void Function(double)? onProgress,
   ) async {
     final file = File(media.path);
@@ -261,10 +266,10 @@ class MediaService {
     }
 
     final path = '$folder/$id${ext.isEmpty ? '.mp4' : ext}';
-    final url = await _putFile(file, path, mime, (v) => onProgress?.call(v * 0.95));
+    final url = await _putFile(bucket, file, path, mime, (v) => onProgress?.call(v * 0.95));
     String? thumbUrl;
     if (thumb != null) {
-      thumbUrl = await _putData(thumb, '$folder/${id}_thumb.jpg', 'image/jpeg', null);
+      thumbUrl = await _putData(bucket, thumb, '$folder/${id}_thumb.jpg', 'image/jpeg', null);
     }
     onProgress?.call(1);
     return UploadedMedia(
@@ -284,6 +289,7 @@ class MediaService {
   Future<UploadedMedia> _uploadRaw(
     PickedMedia media,
     String folder,
+    String bucket,
     void Function(double)? onProgress, {
     String? mime,
   }) async {
@@ -293,7 +299,7 @@ class MediaService {
     final safeName = '${_uuid.v4()}$ext';
     final contentType = mime ?? media.mime ?? _mimeFor(ext);
     final path = '$folder/$safeName';
-    final url = await _putFile(file, path, contentType, onProgress);
+    final url = await _putFile(bucket, file, path, contentType, onProgress);
     return UploadedMedia(
       url: url,
       path: path,
@@ -306,41 +312,29 @@ class MediaService {
   }
 
   Future<String> _putData(
+    String bucket,
     Uint8List data,
     String path,
     String contentType,
     void Function(double)? onProgress,
   ) async {
-    if (kDemoMode) {
-      // Demo: dosyalar cihazda kalır, yerel yol URL gibi kullanılır.
-      final dir = await getTemporaryDirectory();
-      final file = File(p.join(dir.path, 'demo_${path.replaceAll('/', '_')}'));
-      await file.writeAsBytes(data);
-      onProgress?.call(1);
-      return file.path;
-    }
-    final ref = _storage.ref(path);
-    final task = ref.putData(data, _meta(contentType));
-    _track(task, onProgress);
-    await task;
-    return ref.getDownloadURL();
+    onProgress?.call(0.05);
+    await _storage.from(bucket).uploadBinary(path, data, fileOptions: _options(contentType));
+    onProgress?.call(1);
+    return _storage.from(bucket).createSignedUrl(path, _longLived);
   }
 
   Future<String> _putFile(
+    String bucket,
     File file,
     String path,
     String contentType,
     void Function(double)? onProgress,
   ) async {
-    if (kDemoMode) {
-      onProgress?.call(1);
-      return file.path;
-    }
-    final ref = _storage.ref(path);
-    final task = ref.putFile(file, _meta(contentType));
-    _track(task, onProgress);
-    await task;
-    return ref.getDownloadURL();
+    onProgress?.call(0.05);
+    await _storage.from(bucket).upload(path, file, fileOptions: _options(contentType));
+    onProgress?.call(1);
+    return _storage.from(bucket).createSignedUrl(path, _longLived);
   }
 
   /// Yalnızca yol saklanan içerikler (kapsüller) için: indirme URL'si
@@ -350,49 +344,64 @@ class MediaService {
     required String folder,
     void Function(double)? onProgress,
   }) async {
-    final ext = p.extension(media.path).toLowerCase();
-    final path = '$folder/${_uuid.v4()}$ext';
-    if (kDemoMode) return media.path;
-    Uint8List? data;
-    if (media.kind == MediaKind.image) {
-      data = await FlutterImageCompress.compressWithFile(
-        media.path,
-        minWidth: maxImageSide,
-        minHeight: maxImageSide,
-        quality: 84,
-      );
-    }
-    final ref = _storage.ref(data != null ? '${p.withoutExtension(path)}.jpg' : path);
-    final UploadTask task = data != null
-        ? ref.putData(data, _meta('image/jpeg'))
-        : ref.putFile(File(media.path), _meta(_mimeFor(ext, media.kind)));
-    _track(task, onProgress);
-    await task;
-    return ref.fullPath;
-  }
-
-  Future<String> downloadUrl(String path) async => kDemoMode ? path : _storage.ref(path).getDownloadURL();
-
-  Future<void> deletePaths(Iterable<String> paths) async {
-    if (kDemoMode) return;
-    for (final path in paths) {
-      try {
-        await _storage.ref(path).delete();
-      } catch (_) {}
+    try {
+      final ext = p.extension(media.path).toLowerCase();
+      Uint8List? data;
+      if (media.kind == MediaKind.image) {
+        data = await FlutterImageCompress.compressWithFile(
+          media.path,
+          minWidth: maxImageSide,
+          minHeight: maxImageSide,
+          quality: 84,
+        );
+      }
+      final path = '$folder/${_uuid.v4()}${data != null ? '.jpg' : ext}';
+      onProgress?.call(0.05);
+      if (data != null) {
+        await _storage.from(mediaBucket).uploadBinary(path, data, fileOptions: _options('image/jpeg'));
+      } else {
+        await _storage
+            .from(mediaBucket)
+            .upload(path, File(media.path), fileOptions: _options(_mimeFor(ext, media.kind)));
+      }
+      onProgress?.call(1);
+      return path;
+    } catch (e) {
+      throw AppFailure.from(e);
     }
   }
 
-  void _track(UploadTask task, void Function(double)? onProgress) {
-    if (onProgress == null) return;
-    task.snapshotEvents.listen((s) {
-      if (s.totalBytes > 0) onProgress(s.bytesTransferred / s.totalBytes);
-    }, onError: (_) {});
+  /// Kısa ömürlü imzalı bağlantı (erişim kuralları o an kontrol edilir).
+  Future<String> signedUrl(String path, {int seconds = 3600}) =>
+      _storage.from(mediaBucket).createSignedUrl(path, seconds);
+
+  Future<void> deletePaths(Iterable<String> paths, {String bucket = mediaBucket}) async {
+    final list = paths.where((e) => e.isNotEmpty).toList();
+    if (list.isEmpty) return;
+    try {
+      await _storage.from(bucket).remove(list);
+    } catch (_) {}
   }
 
-  SettableMetadata _meta(String contentType) => SettableMetadata(
-        contentType: contentType,
-        cacheControl: 'private, max-age=31536000',
-      );
+  /// Bir klasördeki tüm dosyaları (alt klasörler dahil) siler.
+  Future<void> deleteFolder(String folder, {String bucket = mediaBucket}) async {
+    try {
+      final items = await _storage.from(bucket).list(path: folder);
+      final files = <String>[];
+      for (final item in items) {
+        final full = '$folder/${item.name}';
+        if (item.id == null) {
+          await deleteFolder(full, bucket: bucket);
+        } else {
+          files.add(full);
+        }
+      }
+      await deletePaths(files, bucket: bucket);
+    } catch (_) {}
+  }
+
+  FileOptions _options(String contentType) =>
+      FileOptions(contentType: contentType, cacheControl: '31536000', upsert: false);
 
   Future<Size?> _dimensions(Uint8List bytes) async {
     try {

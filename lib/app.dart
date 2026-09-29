@@ -3,14 +3,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'core/router/app_router.dart';
+import 'core/router/routes.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/preferences_service.dart';
 import 'core/services/presence_service.dart';
+import 'core/services/supabase_providers.dart';
 import 'core/session/session_providers.dart';
 import 'core/theme/app_theme.dart';
-import 'features/auth/data/auth_repository.dart';
 import 'features/settings/presentation/lock_screen.dart';
 
 class VisalApp extends ConsumerWidget {
@@ -55,6 +57,7 @@ class SessionEffects extends ConsumerStatefulWidget {
 class _SessionEffectsState extends ConsumerState<SessionEffects>
     with WidgetsBindingObserver {
   StreamSubscription<String>? _tapSub;
+  StreamSubscription<AuthState>? _authSub;
   String? _registeredUid;
 
   @override
@@ -63,6 +66,12 @@ class _SessionEffectsState extends ConsumerState<SessionEffects>
     WidgetsBinding.instance.addObserver(this);
     final notifications = ref.read(notificationServiceProvider);
     notifications.init();
+    // Şifre sıfırlama bağlantısıyla dönüldüğünde yeni şifre ekranı açılır.
+    _authSub = ref.read(supabaseProvider).auth.onAuthStateChange.listen((state) {
+      if (state.event == AuthChangeEvent.passwordRecovery) {
+        ref.read(routerProvider).push(Routes.resetPassword);
+      }
+    }, onError: (_) {});
     _tapSub = notifications.onTapRoute.listen((route) {
       final router = ref.read(routerProvider);
       if (route.startsWith('/home') ||
@@ -81,6 +90,7 @@ class _SessionEffectsState extends ConsumerState<SessionEffects>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _tapSub?.cancel();
+    _authSub?.cancel();
     super.dispose();
   }
 
@@ -90,7 +100,7 @@ class _SessionEffectsState extends ConsumerState<SessionEffects>
     final presence = ref.read(presenceServiceProvider);
     if (user == null || !user.isPaired) return;
     if (state == AppLifecycleState.resumed) {
-      presence.goOnline(user.uid, user.settings.privacy);
+      presence.goOnline(user.uid, user.coupleId!, user.settings.privacy);
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       presence.goOffline();
@@ -100,8 +110,8 @@ class _SessionEffectsState extends ConsumerState<SessionEffects>
   @override
   Widget build(BuildContext context) {
     ref.listen(authStateProvider, (prev, next) {
-      final uid = next.value?.uid;
-      final prevUid = prev?.value?.uid;
+      final uid = next.value?.id;
+      final prevUid = prev?.value?.id;
       if (uid != null && uid != _registeredUid) {
         _registeredUid = uid;
         ref.read(notificationServiceProvider).registerUser(uid);
@@ -113,13 +123,9 @@ class _SessionEffectsState extends ConsumerState<SessionEffects>
     });
 
     ref.listen(currentUserProvider, (prev, next) {
-      final authUser = ref.read(authStateProvider).value;
-      if (authUser != null && next.hasValue && next.value == null) {
-        ref.read(authRepositoryProvider).ensureUserDoc(authUser);
-      }
       final user = next.value;
       if (user != null && user.isPaired) {
-        ref.read(presenceServiceProvider).goOnline(user.uid, user.settings.privacy);
+        ref.read(presenceServiceProvider).goOnline(user.uid, user.coupleId!, user.settings.privacy);
       }
     });
 

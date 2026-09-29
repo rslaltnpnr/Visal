@@ -2,13 +2,15 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show Color;
 
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'firebase_providers.dart';
+import '../config/env.dart';
+import 'supabase_providers.dart';
 
 /// Arka planda gelen FCM mesajları. Bildirim yükü sistem tarafından
 /// gösterildiği için burada ek iş yapılmaz; fonksiyon izole girişi olmalı.
@@ -17,8 +19,8 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {}
 
 final notificationServiceProvider = Provider<NotificationService>((ref) {
   final service = NotificationService(
-    ref.watch(messagingProvider),
-    ref.watch(firestoreProvider),
+    Env.pushConfigured && Firebase.apps.isNotEmpty ? FirebaseMessaging.instance : null,
+    ref.watch(supabaseProvider),
   );
   ref.onDispose(service.dispose);
   return service;
@@ -47,10 +49,12 @@ abstract final class VisalChannels {
 }
 
 class NotificationService {
-  NotificationService(this._messaging, this._db);
+  /// Firebase yapılandırılmadıysa null: bildirimler yalnızca uygulama
+  /// içi bildirim kutusuna düşer.
+  NotificationService(this._fcm, this._db);
 
-  final FirebaseMessaging _messaging;
-  final FirebaseFirestore _db;
+  final FirebaseMessaging? _fcm;
+  final SupabaseClient _db;
   final _local = FlutterLocalNotificationsPlugin();
   final _tapController = StreamController<String>.broadcast();
   final List<StreamSubscription<dynamic>> _subs = [];
@@ -92,8 +96,11 @@ class NotificationService {
       await android?.createNotificationChannel(c);
     }
 
+    final messaging = _fcm;
+    if (messaging == null) return;
+
     // iOS: ön planda sistem bildirimini göster (Android'de yerel bildirim).
-    await _messaging.setForegroundNotificationPresentationOptions(
+    await messaging.setForegroundNotificationPresentationOptions(
       alert: true,
       badge: true,
       sound: true,
@@ -101,7 +108,7 @@ class NotificationService {
 
     _subs.add(FirebaseMessaging.onMessage.listen(_onForegroundMessage));
     _subs.add(FirebaseMessaging.onMessageOpenedApp.listen(_onOpened));
-    final initial = await _messaging.getInitialMessage();
+    final initial = await messaging.getInitialMessage();
     if (initial != null) {
       // Router hazır olduktan sonra işlenmesi için küçük gecikme.
       Future<void>.delayed(const Duration(milliseconds: 600), () => _onOpened(initial));
@@ -110,7 +117,12 @@ class NotificationService {
 
   /// Android 13+ POST_NOTIFICATIONS ve iOS izin istemi.
   Future<bool> requestPermission() async {
-    final settings = await _messaging.requestPermission(
+    final messaging = _fcm;
+    if (messaging == null) {
+      final android = _local.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      return await android?.requestNotificationsPermission() ?? true;
+    }
+    final settings = await messaging.requestPermission(
       alert: true,
       badge: true,
       sound: true,
@@ -124,42 +136,47 @@ class NotificationService {
     if (kIsWeb) return;
     _uid = uid;
     await requestPermission();
+    final messaging = _fcm;
+    if (messaging == null) return;
     if (Platform.isIOS) {
       // APNs jetonu hazır olmadan FCM jetonu alınamaz.
       for (var i = 0; i < 5; i++) {
-        if (await _messaging.getAPNSToken() != null) break;
+        if (await messaging.getAPNSToken() != null) break;
         await Future<void>.delayed(const Duration(seconds: 1));
       }
     }
     try {
-      final token = await _messaging.getToken();
+      final token = await messaging.getToken();
       if (token != null) await _saveToken(uid, token);
     } catch (e) {
       debugPrint('FCM token alınamadı: $e');
     }
-    _subs.add(_messaging.onTokenRefresh.listen((t) {
+    _subs.add(messaging.onTokenRefresh.listen((t) {
       if (_uid != null) _saveToken(_uid!, t);
     }));
   }
 
-  Future<void> _saveToken(String uid, String token) =>
-      _db.userDoc(uid).collection('tokens').doc(token).set({
-        'token': token,
-        'platform': Platform.operatingSystem,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+  /// Aynı cihaz başka hesaba geçtiyse jeton yeni kullanıcıya devredilir.
+  Future<void> _saveToken(String uid, String token) async {
+    try {
+      await _db.rpc<void>('claim_device_token', params: {'p_token': token, 'p_platform': Platform.operatingSystem});
+    } catch (e) {
+      debugPrint('Cihaz jetonu kaydedilemedi: $e');
+    }
+  }
 
   /// Çıkışta bu cihazın jetonunu siler.
   Future<void> unregister() async {
     final uid = _uid;
     _uid = null;
-    if (uid == null || kIsWeb) return;
+    final messaging = _fcm;
+    if (uid == null || kIsWeb || messaging == null) return;
     try {
-      final token = await _messaging.getToken();
+      final token = await messaging.getToken();
       if (token != null) {
-        await _db.userDoc(uid).collection('tokens').doc(token).delete();
+        await _db.from('device_tokens').delete().eq('token', token);
       }
-      await _messaging.deleteToken();
+      await messaging.deleteToken();
     } catch (_) {}
   }
 

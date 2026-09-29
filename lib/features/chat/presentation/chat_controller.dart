@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/services/media_service.dart';
+import '../../../core/services/supabase_providers.dart';
 import '../../../core/session/session_providers.dart';
 import '../../../core/utils/failure.dart';
 import '../data/chat_repository.dart';
@@ -41,91 +42,45 @@ class ChatState {
       );
 }
 
-/// Sabit sınırlı sayfalar: [anchor] ve sonrası tek canlı sorgu; daha eskiler
-/// 30'luk canlı sayfalar. Sınırlar değişmediği için boşluk/tekrar oluşmaz ve
-/// sohbetin tamamı asla tek seferde indirilmez.
+/// En yeni mesajlar canlı dinlenir; kullanıcı eskiye kaydırdıkça pencere
+/// [ChatRepository.pageSize] kadar büyür.
 class ChatController extends Notifier<ChatState> {
   late ChatRepository _repo;
-  final _subs = <StreamSubscription<List<Message>>>[];
-  final _sources = <int, List<Message>>{};
-  DateTime? _oldestBoundary;
+  StreamSubscription<List<Message>>? _sub;
+  int _limit = ChatRepository.pageSize;
 
   @override
   ChatState build() {
     _repo = ref.watch(chatRepositoryProvider);
-    ref.onDispose(() {
-      for (final s in _subs) {
-        s.cancel();
-      }
-      _subs.clear();
-      _sources.clear();
-    });
-    Future.microtask(_init);
+    ref.onDispose(() => _sub?.cancel());
+    _listen();
     return const ChatState();
   }
 
-  Future<void> _init() async {
-    try {
-      final latest = await _repo.fetchLatest();
-      final full = latest.length >= ChatRepository.pageSize;
-      final anchor = full ? latest.last.createdAt : null;
-      _oldestBoundary = anchor;
-      _listen(0, _repo.watchFrom(anchor));
-      state = state.copyWith(hasMore: full, initialized: true);
-    } catch (e) {
-      state = state.copyWith(error: AppFailure.from(e), initialized: true);
-    }
-  }
-
-  void _listen(int key, Stream<List<Message>> stream) {
-    _subs.add(stream.listen(
+  void _listen() {
+    _sub?.cancel();
+    final limit = _limit;
+    _sub = _repo.watchLatest(limit).listen(
       (list) {
-        _sources[key] = list;
-        _emit();
+        final uid = _repo.uid;
+        final visible = list.where((m) => !m.hiddenFor(uid)).toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        state = state.copyWith(
+          messages: visible,
+          initialized: true,
+          loadingMore: false,
+          hasMore: list.length >= limit,
+        );
       },
-      onError: (Object e) => state = state.copyWith(error: e),
-    ));
-  }
-
-  void _emit() {
-    final uid = _repo.uid;
-    final map = <String, Message>{};
-    for (final list in _sources.values) {
-      for (final m in list) {
-        map[m.id] = m;
-      }
-    }
-    final merged = map.values.where((m) => !m.hiddenFor(uid)).toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    state = state.copyWith(messages: merged, initialized: true);
+      onError: (Object e) => state = state.copyWith(error: AppFailure.from(e), initialized: true, loadingMore: false),
+    );
   }
 
   Future<void> loadMore() async {
-    final boundary = _oldestBoundary;
-    if (state.loadingMore || !state.hasMore || boundary == null) return;
+    if (state.loadingMore || !state.hasMore) return;
     state = state.copyWith(loadingMore: true);
-    final key = _sources.length;
-    final completer = Completer<List<Message>>();
-    _subs.add(_repo.watchPage(boundary).listen(
-      (list) {
-        _sources[key] = list;
-        if (!completer.isCompleted) completer.complete(list);
-        _emit();
-      },
-      onError: (Object e) {
-        if (!completer.isCompleted) completer.completeError(e);
-      },
-    ));
-    try {
-      final page = await completer.future;
-      if (page.isNotEmpty) _oldestBoundary = page.last.createdAt;
-      state = state.copyWith(
-        loadingMore: false,
-        hasMore: page.length >= ChatRepository.pageSize,
-      );
-    } catch (e) {
-      state = state.copyWith(loadingMore: false, error: e);
-    }
+    _limit += ChatRepository.pageSize;
+    _listen();
   }
 }
 
@@ -208,7 +163,7 @@ final chatOutboxProvider =
 
 /// Sabitlenmiş mesaj.
 final pinnedMessageProvider = StreamProvider.autoDispose<Message?>(
-  (ref) => ref.watch(chatRepositoryProvider).watchPinned(),
+  (ref) => ref.watch(chatRepositoryProvider).watchPinned(ref.watch(tableBusProvider)),
 );
 
 /// Okunmamış mesaj sayısı (alt menü rozeti).
@@ -226,5 +181,5 @@ final unreadCountProvider = Provider<int>((ref) {
 
 final recentMessagesProvider = StreamProvider<List<Message>>((ref) {
   if (ref.watch(coupleIdProvider) == null) return Stream.value(const []);
-  return ref.watch(chatRepositoryProvider).watchRecent(limit: 20);
+  return ref.watch(chatRepositoryProvider).watchLatest(20);
 });

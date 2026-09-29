@@ -1,5 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 import '../../../core/services/media_service.dart';
 import '../../../core/utils/date_x.dart';
 
@@ -101,27 +99,25 @@ class Message {
         MessageType.gif => 'GIF',
       };
 
-  factory Message.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data() ?? const {};
+  factory Message.fromRow(Map<String, dynamic> d) {
     final mediaMap = (d['media'] as Map?)?.cast<String, dynamic>();
-    final replyMap = (d['replyTo'] as Map?)?.cast<String, dynamic>();
+    final replyMap = (d['reply_to'] as Map?)?.cast<String, dynamic>();
     return Message(
-      id: doc.id,
-      senderId: d['senderId'] as String? ?? '',
+      id: d['id'] as String,
+      senderId: d['sender_id'] as String? ?? '',
       type: MessageType.values.firstWhere((t) => t.name == d['type'], orElse: () => MessageType.text),
       text: d['text'] as String?,
-      mediaUrl: d['mediaUrl'] as String?,
+      mediaUrl: d['media_url'] as String?,
       media: mediaMap == null ? null : UploadedMedia.fromMap(mediaMap),
       replyTo: replyMap == null ? null : ReplyRef.fromMap(replyMap),
       reactions: ((d['reactions'] as Map?) ?? const {}).map((k, v) => MapEntry('$k', '$v')),
-      createdAt: tsToDate(d['createdAt']) ?? tsToDate(d['clientTime']) ?? DateTime.now(),
-      editedAt: tsToDate(d['editedAt']),
-      seenBy: List<String>.from(d['seenBy'] as List? ?? const []),
-      deletedFor: List<String>.from(d['deletedFor'] as List? ?? const []),
-      deletedForAll: d['deletedForAll'] as bool? ?? false,
+      createdAt: tsToDate(d['created_at']) ?? DateTime.now(),
+      editedAt: tsToDate(d['edited_at']),
+      seenBy: List<String>.from(d['seen_by'] as List? ?? const []),
+      deletedFor: List<String>.from(d['deleted_for'] as List? ?? const []),
+      deletedForAll: d['deleted_for_all'] as bool? ?? false,
       pinned: d['pinned'] as bool? ?? false,
-      loveKind: LoveKind.values.where((k) => k.name == d['loveKind']).firstOrNull,
-      pending: doc.metadata.hasPendingWrites,
+      loveKind: LoveKind.values.where((k) => k.name == d['love_kind']).firstOrNull,
     );
   }
 }

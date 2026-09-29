@@ -1,115 +1,134 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../../core/services/firebase_providers.dart';
+import '../../../core/services/supabase_providers.dart';
 import '../../../core/session/session_providers.dart';
 import '../../../core/utils/date_x.dart';
+import '../../../core/utils/failure.dart';
 import '../domain/question.dart';
 import '../domain/question_bank.dart';
 
 final questionsRepositoryProvider = Provider<QuestionsRepository>((ref) => QuestionsRepository(
-      ref.watch(firestoreProvider),
+      ref.watch(supabaseProvider),
+      ref.watch(tableBusProvider),
       requireCoupleId(ref),
       ref.watch(currentUidProvider)!,
     ));
 
 class QuestionsRepository {
-  QuestionsRepository(this._db, this.coupleId, this.uid);
+  QuestionsRepository(this._db, this._bus, this.coupleId, this.uid);
 
-  final FirebaseFirestore _db;
+  final SupabaseClient _db;
+  final TableBus _bus;
   final String coupleId;
   final String uid;
 
-  CollectionReference<Map<String, dynamic>> get _questions => _db.coupleCol(coupleId, 'questions');
-  CollectionReference<Map<String, dynamic>> get _answers => _db.coupleCol(coupleId, 'answers');
-  CollectionReference<Map<String, dynamic>> get _moods => _db.coupleCol(coupleId, 'moods');
+  SupabaseQueryBuilder get _questions => _db.from('questions');
+  SupabaseQueryBuilder get _answers => _db.from('answers');
+  SupabaseQueryBuilder get _moods => _db.from('moods');
 
-  /// Günün sorusu belgesi yoksa oluşturur (her iki partner de aynı soruyu üretir).
+  Stream<T> _watch<T>(String table, Future<T> Function() fetch, {List<String> alsoTables = const []}) =>
+      watchQuery(_db, _bus, table: table, column: 'couple_id', value: coupleId, fetch: fetch, alsoTables: alsoTables);
+
+  /// Soru yoksa açar; partner aynı anda açtıysa çakışma sessizce yok sayılır.
+  Future<void> _open(String id, BankQuestion q, {String? day}) async {
+    try {
+      await _questions.upsert(
+        {
+          'couple_id': coupleId,
+          'id': id,
+          'text': q.text,
+          'category': q.category.name,
+          'bank_id': q.id,
+          'day': day,
+        },
+        onConflict: 'couple_id,id',
+        ignoreDuplicates: true,
+      );
+    } catch (e) {
+      throw AppFailure.from(e);
+    }
+    _bus.bump('questions');
+  }
+
+  /// Günün sorusu (her iki partner de aynı soruyu üretir).
   Future<String> ensureDaily() async {
     final today = DateTime.now();
     final id = CoupleQuestion.dailyId(today);
-    final ref = _questions.doc(id);
-    final snap = await ref.get();
-    if (!snap.exists) {
-      final q = QuestionBank.forDay(today, coupleId);
-      try {
-        await ref.set({
-          'text': q.text,
-          'category': q.category.name,
-          'bankId': q.id,
-          'day': dayKey(today),
-          'answeredBy': <String>[],
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-      } on FirebaseException catch (e) {
-        // Partner aynı anda oluşturduysa kurallar ikinci yazmayı reddeder.
-        if (e.code != 'permission-denied') rethrow;
-      }
-    }
+    await _open(id, QuestionBank.forDay(today, coupleId), day: dayKey(today));
     return id;
   }
 
   /// Bankadan bir soruyu ortak soru olarak açar.
   Future<String> openBankQuestion(BankQuestion q) async {
-    final ref = _questions.doc(q.id);
-    final snap = await ref.get();
-    if (!snap.exists) {
-      await ref.set({
-        'text': q.text,
-        'category': q.category.name,
-        'bankId': q.id,
-        'day': null,
-        'answeredBy': <String>[],
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-    }
+    await _open(q.id, q);
     return q.id;
   }
 
-  Stream<CoupleQuestion?> watchQuestion(String id) =>
-      _questions.doc(id).snapshots().map((s) => s.exists ? CoupleQuestion.fromDoc(s) : null);
+  Stream<CoupleQuestion?> watchQuestion(String id) => _watch('questions', () async {
+        final row = await _questions.select().eq('couple_id', coupleId).eq('id', id).maybeSingle();
+        return row == null ? null : CoupleQuestion.fromRow(row);
+      }, alsoTables: const ['answers']);
 
-  Stream<List<CoupleQuestion>> watchHistory({int limit = 40}) => _questions
-      .orderBy('createdAt', descending: true)
-      .limit(limit)
-      .snapshots()
-      .map((s) => s.docs.map(CoupleQuestion.fromDoc).toList());
+  Stream<List<CoupleQuestion>> watchHistory({int limit = 40}) => _watch('questions', () async {
+        final rows =
+            await _questions.select().eq('couple_id', coupleId).order('created_at', ascending: false).limit(limit);
+        return rows.map(CoupleQuestion.fromRow).toList();
+      }, alsoTables: const ['answers']);
 
-  Stream<Answer?> watchAnswer(String questionId, String ofUid) => _answers
-      .doc(Answer.docId(questionId, ofUid))
-      .snapshots()
-      .map((s) => s.exists ? Answer.fromDoc(s) : null);
+  /// Partnerin cevabı, ben cevaplamadan veritabanından hiç dönmez (RLS).
+  Stream<Answer?> watchAnswer(String questionId, String ofUid) => _watch('answers', () async {
+        final row = await _answers
+            .select()
+            .eq('couple_id', coupleId)
+            .eq('question_id', questionId)
+            .eq('user_id', ofUid)
+            .maybeSingle();
+        return row == null ? null : Answer.fromRow(row);
+      });
 
+  /// Cevap eklenince tetikleyici sorudaki `answered_by` listesini günceller.
   Future<void> answer(String questionId, String text) async {
-    final batch = _db.batch();
-    batch.set(_answers.doc(Answer.docId(questionId, uid)), {
-      'uid': uid,
-      'questionId': questionId,
-      'text': text.trim(),
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-    batch.update(_questions.doc(questionId), {
-      'answeredBy': FieldValue.arrayUnion([uid]),
-    });
-    await batch.commit();
+    try {
+      await _answers.insert({
+        'couple_id': coupleId,
+        'question_id': questionId,
+        'user_id': uid,
+        'text': text.trim(),
+      });
+    } catch (e) {
+      throw AppFailure.from(e);
+    }
+    _bus.bump('answers');
   }
 
   // ---------- Ruh hali ----------
 
-  Future<void> setMood(String emoji) {
-    final today = DateTime.now();
-    return _moods.doc(Mood.docId(today, uid)).set({
-      'uid': uid,
-      'day': dayKey(today),
-      'emoji': emoji,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+  Future<void> setMood(String emoji) async {
+    final day = dayKey(DateTime.now());
+    try {
+      try {
+        await _moods.insert({'couple_id': coupleId, 'user_id': uid, 'day': day, 'emoji': emoji});
+      } on PostgrestException catch (e) {
+        if (e.code != '23505') rethrow;
+        await _moods.update({'emoji': emoji}).eq('couple_id', coupleId).eq('user_id', uid).eq('day', day);
+      }
+    } catch (e) {
+      throw AppFailure.from(e);
+    }
+    _bus.bump('moods');
   }
 
-  Stream<Mood?> watchMood(String ofUid) => _moods
-      .doc(Mood.docId(DateTime.now(), ofUid))
-      .snapshots()
-      .map((s) => s.exists ? Mood.fromDoc(s) : null);
+  /// Partner ruh halini gizlediyse satır dönmez -> null.
+  Stream<Mood?> watchMood(String ofUid) => _watch('moods', () async {
+        final row = await _moods
+            .select()
+            .eq('couple_id', coupleId)
+            .eq('user_id', ofUid)
+            .eq('day', dayKey(DateTime.now()))
+            .maybeSingle();
+        return row == null ? null : Mood.fromRow(row);
+      }, alsoTables: const ['couple_members']);
 }
 
 final dailyQuestionIdProvider = FutureProvider.autoDispose<String>(

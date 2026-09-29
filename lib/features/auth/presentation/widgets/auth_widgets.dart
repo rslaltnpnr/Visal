@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../core/demo/demo_mode.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/failure.dart';
@@ -224,61 +223,4 @@ class _GoogleG extends StatelessWidget {
           style: TextStyle(fontFamily: kFontFamily, fontSize: 20, fontWeight: FontWeight.w700),
         ),
       );
-}
-
-/// Demo modunda giriş ekranlarının üstünde gösterilir.
-class DemoBanner extends ConsumerStatefulWidget {
-  const DemoBanner({super.key});
-
-  @override
-  ConsumerState<DemoBanner> createState() => _DemoBannerState();
-}
-
-class _DemoBannerState extends ConsumerState<DemoBanner> {
-  bool _busy = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.rose.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.rose.withValues(alpha: 0.5)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Demo modu', style: context.text.titleSmall),
-          const SizedBox(height: 4),
-          Text(
-            'Firebase henüz bağlı değil. Herhangi bir e-posta ve şifreyle giriş yapabilir ya da '
-            'aşağıdaki butonu kullanabilirsin. Veriler örnektir ve yalnızca bu cihazda tutulur; '
-            'uygulama kapanınca sıfırlanır.',
-            style: context.text.bodySmall,
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: _busy
-                  ? null
-                  : () async {
-                      setState(() => _busy = true);
-                      try {
-                        await ref.read(authRepositoryProvider).signInWithEmail(kDemoEmail, kDemoPassword);
-                      } catch (e) {
-                        if (context.mounted) context.showError(e);
-                      } finally {
-                        if (mounted) setState(() => _busy = false);
-                      }
-                    },
-              icon: const Icon(Icons.play_arrow_rounded),
-              label: const Text('Demo olarak gir'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }

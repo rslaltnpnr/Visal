@@ -3,7 +3,7 @@ name: Android APK Release
 on:
   push:
     branches: [main, "ccr-*"]
-    paths-ignore: ["**.md", "rules-test/**", "functions/**"]
+    paths-ignore: ["**.md", "supabase/**", ".github/workflows/supabase-deploy.yml"]
   workflow_dispatch:
 
 permissions:
@@ -43,8 +43,21 @@ jobs:
       - run: flutter analyze
       - run: flutter test
 
+      # Supabase URL ve anon (publishable) anahtar gizli değildir; depo
+      # değişkeni (Settings → Variables) veya secret olarak verilebilir.
       - name: APK derle
-        run: flutter build apk --release --dart-define=TENOR_API_KEY=${{ secrets.TENOR_API_KEY }}
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY || secrets.SUPABASE_ANON_KEY }}
+          GOOGLE_SERVER_CLIENT_ID: ${{ vars.GOOGLE_SERVER_CLIENT_ID || secrets.GOOGLE_SERVER_CLIENT_ID }}
+          TENOR_API_KEY: ${{ secrets.TENOR_API_KEY }}
+        run: |
+          ARGS=()
+          [ -n "$SUPABASE_URL" ] && ARGS+=("--dart-define=SUPABASE_URL=$SUPABASE_URL")
+          [ -n "$SUPABASE_ANON_KEY" ] && ARGS+=("--dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY")
+          [ -n "$GOOGLE_SERVER_CLIENT_ID" ] && ARGS+=("--dart-define=GOOGLE_SERVER_CLIENT_ID=$GOOGLE_SERVER_CLIENT_ID")
+          [ -n "$TENOR_API_KEY" ] && ARGS+=("--dart-define=TENOR_API_KEY=$TENOR_API_KEY")
+          flutter build apk --release "${ARGS[@]}"
 
       - name: APK'yı adlandır
         id: apk
