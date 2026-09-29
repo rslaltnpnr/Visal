@@ -32,7 +32,9 @@ class _CapsuleEditorScreenState extends ConsumerState<CapsuleEditorScreen> {
   bool _saving = false;
   double _progress = 0;
 
-  final _recorder = AudioRecorder();
+  // Kayıt başlarken oluşturulur (gereksiz yere mikrofon kanalı açılmaz).
+  AudioRecorder? _recorderInstance;
+  AudioRecorder get _recorder => _recorderInstance ??= AudioRecorder();
   bool _recording = false;
   DateTime? _recordStart;
 
@@ -43,7 +45,7 @@ class _CapsuleEditorScreenState extends ConsumerState<CapsuleEditorScreen> {
   void dispose() {
     _title.dispose();
     _message.dispose();
-    _recorder.dispose();
+    _recorderInstance?.dispose();
     super.dispose();
   }
 

@@ -1,0 +1,109 @@
+name: Android APK Release
+
+on:
+  push:
+    branches: [main, "ccr-*"]
+    paths-ignore: ["**.md", "supabase/**", ".github/workflows/supabase-deploy.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.5"
+          channel: stable
+          cache: true
+
+      # Push bildirimleri (isteğe bağlı): Firebase konsolundan indirilen
+      # google-services.json içeriği GOOGLE_SERVICES_JSON secret'ı olarak verilir;
+      # gerekli değerler çıkarılıp --dart-define ile derlemeye aktarılır.
+      - name: Firebase (push) yapılandırması
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -z "$GOOGLE_SERVICES_JSON" ]; then
+            echo "::notice::GOOGLE_SERVICES_JSON yok; push bildirimleri kapalı derleniyor."
+            exit 0
+          fi
+          PKG=app.visal.visal
+          J=$(printf '%s' "$GOOGLE_SERVICES_JSON")
+          CLIENT=$(echo "$J" | jq -c --arg p "$PKG" '[.client[] | select(.client_info.android_client_info.package_name == $p)][0]')
+          if [ "$CLIENT" = "null" ] || [ -z "$CLIENT" ]; then
+            echo "::error::google-services.json içinde '$PKG' paketli Android uygulaması yok. Firebase'e bu paket adıyla uygulama ekleyin."
+            exit 1
+          fi
+          {
+            echo "FIREBASE_DEFINES<<EOF_DEFINES"
+            echo "--dart-define=FIREBASE_PROJECT_ID=$(echo "$J" | jq -r '.project_info.project_id')"
+            echo "--dart-define=FIREBASE_SENDER_ID=$(echo "$J" | jq -r '.project_info.project_number')"
+            echo "--dart-define=FIREBASE_STORAGE_BUCKET=$(echo "$J" | jq -r '.project_info.storage_bucket // empty')"
+            echo "--dart-define=FIREBASE_APP_ID_ANDROID=$(echo "$CLIENT" | jq -r '.client_info.mobilesdk_app_id')"
+            echo "--dart-define=FIREBASE_API_KEY_ANDROID=$(echo "$CLIENT" | jq -r '.api_key[0].current_key')"
+            echo "EOF_DEFINES"
+          } >> "$GITHUB_ENV"
+          echo "Firebase push yapılandırması eklendi."
+
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+      # Supabase URL ve anon (publishable) anahtar gizli değildir; depo
+      # değişkeni (Settings → Variables) veya secret olarak verilebilir.
+      - name: APK derle
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY || secrets.SUPABASE_ANON_KEY }}
+          GOOGLE_SERVER_CLIENT_ID: ${{ vars.GOOGLE_SERVER_CLIENT_ID || secrets.GOOGLE_SERVER_CLIENT_ID }}
+          TENOR_API_KEY: ${{ secrets.TENOR_API_KEY }}
+        run: |
+          ARGS=()
+          [ -n "$SUPABASE_URL" ] && ARGS+=("--dart-define=SUPABASE_URL=$SUPABASE_URL")
+          [ -n "$SUPABASE_ANON_KEY" ] && ARGS+=("--dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY")
+          [ -n "$GOOGLE_SERVER_CLIENT_ID" ] && ARGS+=("--dart-define=GOOGLE_SERVER_CLIENT_ID=$GOOGLE_SERVER_CLIENT_ID")
+          [ -n "$TENOR_API_KEY" ] && ARGS+=("--dart-define=TENOR_API_KEY=$TENOR_API_KEY")
+          while IFS= read -r d; do if [ -n "$d" ]; then ARGS+=("$d"); fi; done <<< "${FIREBASE_DEFINES:-}"
+          flutter build apk --release "${ARGS[@]}"
+
+      - name: APK'yı adlandır
+        id: apk
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d+ -f1)
+          NAME="VISAL-${VERSION}-build${{ github.run_number }}.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "$NAME"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}-build${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: visal-apk
+          path: ${{ steps.apk.outputs.name }}
+
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.apk.outputs.tag }}
+          name: VISAL ${{ steps.apk.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          prerelease: ${{ github.ref != 'refs/heads/main' }}
+          files: ${{ steps.apk.outputs.name }}
+          body: |
+            VISAL Android test sürümü (${{ github.ref_name }} @ ${{ github.sha }}).
+
+            Kurulum: APK dosyasını telefona indirip açın ("Bilinmeyen kaynaklardan yükleme" izni gerekir).

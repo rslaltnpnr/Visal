@@ -1,5 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 import '../../../core/utils/date_x.dart';
 import 'question_bank.dart';
 
@@ -28,18 +26,17 @@ class CoupleQuestion {
 
   static String dailyId(DateTime day) => 'd_${dayKey(day)}';
 
-  factory CoupleQuestion.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data() ?? const {};
+  factory CoupleQuestion.fromRow(Map<String, dynamic> d) {
     return CoupleQuestion(
-      id: doc.id,
+      id: d['id'] as String,
       text: d['text'] as String? ?? '',
       category: QuestionCategory.values.firstWhere(
         (c) => c.name == d['category'],
         orElse: () => QuestionCategory.relationship,
       ),
       day: d['day'] as String?,
-      answeredBy: List<String>.from(d['answeredBy'] as List? ?? const []),
-      createdAt: tsToDate(d['createdAt']),
+      answeredBy: List<String>.from(d['answered_by'] as List? ?? const []),
+      createdAt: tsToDate(d['created_at']),
     );
   }
 }
@@ -57,13 +54,12 @@ class Answer {
 
   static String docId(String questionId, String uid) => '${questionId}_$uid';
 
-  factory Answer.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data() ?? const {};
+  factory Answer.fromRow(Map<String, dynamic> d) {
     return Answer(
-      uid: d['uid'] as String? ?? '',
-      questionId: d['questionId'] as String? ?? '',
+      uid: d['user_id'] as String? ?? '',
+      questionId: d['question_id'] as String? ?? '',
       text: d['text'] as String? ?? '',
-      createdAt: tsToDate(d['createdAt']),
+      createdAt: tsToDate(d['created_at']),
     );
   }
 }
@@ -94,13 +90,12 @@ class Mood {
 
   static String docId(DateTime day, String uid) => '${dayKey(day)}_$uid';
 
-  factory Mood.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data() ?? const {};
+  factory Mood.fromRow(Map<String, dynamic> d) {
     return Mood(
-      uid: d['uid'] as String? ?? '',
+      uid: d['user_id'] as String? ?? '',
       day: d['day'] as String? ?? '',
       emoji: d['emoji'] as String? ?? '🙂',
-      createdAt: tsToDate(d['createdAt']),
+      createdAt: tsToDate(d['created_at']),
     );
   }
 }

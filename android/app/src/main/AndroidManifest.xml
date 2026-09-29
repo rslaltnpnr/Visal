@@ -42,6 +42,15 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- E-posta doğrulama / şifre sıfırlama dönüşü (Supabase) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="visal" android:host="auth-callback"/>
+            </intent-filter>
+            <!-- Bağlantıları supabase_flutter işler; router'a iletilmez. -->
+            <meta-data android:name="flutter_deeplinking_enabled" android:value="false"/>
         </activity>
         <!-- FCM varsayılan kanal / renk / ikon -->
         <meta-data

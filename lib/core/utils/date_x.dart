@@ -1,15 +1,15 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
 const kLocale = 'tr_TR';
 
 DateTime dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
+/// Veritabanından gelen tarih/zaman değerini yerel DateTime'a çevirir.
+/// 'yyyy-MM-dd' (date) değerleri yerel gece yarısı olarak yorumlanır.
 DateTime? tsToDate(Object? v) {
-  if (v is Timestamp) return v.toDate();
-  if (v is DateTime) return v;
+  if (v is DateTime) return v.toLocal();
   if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
-  if (v is String) return DateTime.tryParse(v);
+  if (v is String) return DateTime.tryParse(v)?.toLocal();
   return null;
 }
 

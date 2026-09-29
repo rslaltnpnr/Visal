@@ -1,6 +1,5 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 import '../../../core/services/media_service.dart';
+import '../../../core/services/supabase_providers.dart';
 import '../../../core/utils/date_x.dart';
 
 enum MemoryFilter {
@@ -55,28 +54,24 @@ class Memory {
     return c.kind == MediaKind.video ? c.thumbUrl : c.url;
   }
 
-  Map<String, dynamic> toMap() => {
-        'createdBy': createdBy,
+  Map<String, dynamic> toRow() => {
         'title': title,
         'description': description,
-        'date': Timestamp.fromDate(date),
-        'monthDay': monthDayKey(date),
-        'year': date.year,
+        'date': dbDate(date),
         'media': media.map((m) => m.toMap()).toList(),
         'location': location,
         'emoji': emoji,
-        'musicUrl': musicUrl,
-        'isSpecial': isSpecial,
-        'isTravel': isTravel,
-        'hasPhoto': hasPhoto,
-        'hasVideo': hasVideo,
+        'music_url': musicUrl,
+        'is_special': isSpecial,
+        'is_travel': isTravel,
+        'has_photo': hasPhoto,
+        'has_video': hasVideo,
       };
 
-  factory Memory.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data() ?? const {};
+  factory Memory.fromRow(Map<String, dynamic> d) {
     return Memory(
-      id: doc.id,
-      createdBy: d['createdBy'] as String? ?? '',
+      id: d['id'] as String,
+      createdBy: d['created_by'] as String? ?? '',
       title: d['title'] as String? ?? '',
       description: d['description'] as String? ?? '',
       date: tsToDate(d['date']) ?? DateTime.now(),
@@ -85,10 +80,10 @@ class Memory {
           .toList(),
       location: d['location'] as String?,
       emoji: d['emoji'] as String?,
-      musicUrl: d['musicUrl'] as String?,
-      isSpecial: d['isSpecial'] as bool? ?? false,
-      isTravel: d['isTravel'] as bool? ?? false,
-      createdAt: tsToDate(d['createdAt']),
+      musicUrl: d['music_url'] as String?,
+      isSpecial: d['is_special'] as bool? ?? false,
+      isTravel: d['is_travel'] as bool? ?? false,
+      createdAt: tsToDate(d['created_at']),
     );
   }
 }
@@ -129,27 +124,25 @@ class StoryEvent {
   final String? photoUrl;
   final String? photoPath;
 
-  Map<String, dynamic> toMap() => {
+  Map<String, dynamic> toRow() => {
         'type': type.name,
         'title': title,
-        'date': Timestamp.fromDate(date),
-        'createdBy': createdBy,
+        'date': dbDate(date),
         'description': description,
-        'photoUrl': photoUrl,
-        'photoPath': photoPath,
+        'photo_url': photoUrl,
+        'photo_path': photoPath,
       };
 
-  factory StoryEvent.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data() ?? const {};
+  factory StoryEvent.fromRow(Map<String, dynamic> d) {
     return StoryEvent(
-      id: doc.id,
+      id: d['id'] as String,
       type: StoryType.values.firstWhere((t) => t.name == d['type'], orElse: () => StoryType.custom),
       title: d['title'] as String? ?? '',
       date: tsToDate(d['date']) ?? DateTime.now(),
-      createdBy: d['createdBy'] as String? ?? '',
+      createdBy: d['created_by'] as String? ?? '',
       description: d['description'] as String? ?? '',
-      photoUrl: d['photoUrl'] as String?,
-      photoPath: d['photoPath'] as String?,
+      photoUrl: d['photo_url'] as String?,
+      photoPath: d['photo_path'] as String?,
     );
   }
 }

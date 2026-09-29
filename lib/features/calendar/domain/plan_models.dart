@@ -1,6 +1,6 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/services/supabase_providers.dart';
 import '../../../core/utils/date_x.dart';
 
 enum EventCategory {
@@ -117,24 +117,22 @@ class PlanEvent {
     }
   }
 
-  Map<String, dynamic> toMap() => {
+  Map<String, dynamic> toRow() => {
         'title': title,
         'category': category.name,
-        'date': Timestamp.fromDate(dateOnly(date)),
-        'startsAt': Timestamp.fromDate(startsAt),
+        'date': dbDate(date),
+        'starts_at': dbTs(startsAt),
         'time': time,
         'location': location,
         'note': note,
         'reminder': reminder,
         'repeat': repeat.name,
         'color': color,
-        'createdBy': createdBy,
       };
 
-  factory PlanEvent.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data() ?? const {};
+  factory PlanEvent.fromRow(Map<String, dynamic> d) {
     return PlanEvent(
-      id: doc.id,
+      id: d['id'] as String,
       title: d['title'] as String? ?? '',
       category: EventCategory.values.firstWhere((c) => c.name == d['category'], orElse: () => EventCategory.special),
       date: tsToDate(d['date']) ?? DateTime.now(),
@@ -144,7 +142,7 @@ class PlanEvent {
       reminder: (d['reminder'] as num?)?.toInt(),
       repeat: RepeatRule.values.firstWhere((r) => r.name == d['repeat'], orElse: () => RepeatRule.none),
       color: (d['color'] as num?)?.toInt(),
-      createdBy: d['createdBy'] as String? ?? '',
+      createdBy: d['created_by'] as String? ?? '',
     );
   }
 }
@@ -180,28 +178,24 @@ class CoupleTask {
 
   bool get overdue => !done && dueDate != null && dateOnly(dueDate!).isBefore(dateOnly(DateTime.now()));
 
-  Map<String, dynamic> toMap() => {
+  Map<String, dynamic> toRow() => {
         'title': title,
         'description': description,
-        'dueDate': dueDate == null ? null : Timestamp.fromDate(dueDate!),
+        'due_date': dueDate == null ? null : dbDate(dueDate!),
         'assignee': assignee,
-        'done': done,
-        'doneBy': doneBy,
-        'createdBy': createdBy,
       };
 
-  factory CoupleTask.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data() ?? const {};
+  factory CoupleTask.fromRow(Map<String, dynamic> d) {
     return CoupleTask(
-      id: doc.id,
+      id: d['id'] as String,
       title: d['title'] as String? ?? '',
       description: d['description'] as String? ?? '',
-      dueDate: tsToDate(d['dueDate']),
+      dueDate: tsToDate(d['due_date']),
       assignee: d['assignee'] as String? ?? kAssignBoth,
       done: d['done'] as bool? ?? false,
-      doneBy: d['doneBy'] as String?,
-      createdBy: d['createdBy'] as String? ?? '',
-      createdAt: tsToDate(d['createdAt']),
+      doneBy: d['done_by'] as String?,
+      createdBy: d['created_by'] as String? ?? '',
+      createdAt: tsToDate(d['created_at']),
     );
   }
 }
@@ -231,27 +225,25 @@ class CoupleGoal {
   double get progress => target <= 0 ? 0 : (current / target).clamp(0, 1).toDouble();
   bool get completed => current >= target;
 
-  Map<String, dynamic> toMap() => {
+  Map<String, dynamic> toRow() => {
         'title': title,
         'current': current,
         'target': target,
         'unit': unit,
         'emoji': emoji,
         'step': step,
-        'createdBy': createdBy,
       };
 
-  factory CoupleGoal.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data() ?? const {};
+  factory CoupleGoal.fromRow(Map<String, dynamic> d) {
     return CoupleGoal(
-      id: doc.id,
+      id: d['id'] as String,
       title: d['title'] as String? ?? '',
       current: d['current'] as num? ?? 0,
       target: d['target'] as num? ?? 1,
       unit: d['unit'] as String? ?? '',
       emoji: d['emoji'] as String? ?? '🎯',
       step: d['step'] as num? ?? 1,
-      createdBy: d['createdBy'] as String? ?? '',
+      createdBy: d['created_by'] as String? ?? '',
     );
   }
 }

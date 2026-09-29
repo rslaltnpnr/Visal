@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/auth/presentation/forgot_password_screen.dart';
+import '../../features/auth/presentation/reset_password_screen.dart';
 import '../../features/auth/presentation/launch_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/onboarding_screen.dart';
@@ -86,13 +87,17 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       if (user == null) {
         if (Routes.publicRoutes.contains(loc)) return null;
+        if (loc == Routes.resetPassword) return Routes.login;
         return Routes.welcome;
       }
+
+      // Sıfırlama bağlantısıyla açılan oturum önce yeni şifreyi belirler.
+      if (loc == Routes.resetPassword) return null;
 
       final profile = ref.read(currentUserProvider);
       final appUser = profile.value;
       if (appUser == null) {
-        // users/{uid} yükleniyor veya oluşturuluyor.
+        // Profil satırı yükleniyor (kayıt tetikleyicisi oluşturur).
         return loc == Routes.launch ? null : Routes.launch;
       }
 
@@ -126,6 +131,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: Routes.login, builder: (_, _) => const LoginScreen()),
       GoRoute(path: Routes.register, builder: (_, _) => const RegisterScreen()),
       GoRoute(path: Routes.forgot, builder: (_, _) => const ForgotPasswordScreen()),
+      GoRoute(path: Routes.resetPassword, builder: (_, _) => const ResetPasswordScreen()),
 
       // Eşleşme
       GoRoute(

@@ -1,0 +1,6 @@
+# Supabase CLI yapılandırması (supabase link / db push / functions deploy)
+project_id = "visal"
+
+[functions.send-push]
+# Veritabanı tetikleyicisi JWT olmadan, paylaşılan gizli anahtarla çağırır.
+verify_jwt = false

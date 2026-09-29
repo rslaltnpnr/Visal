@@ -1,5 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 import '../../../core/services/media_service.dart';
 import '../../../core/utils/date_x.dart';
 
@@ -33,18 +31,17 @@ class Capsule {
 
   Duration get remaining => openAt.difference(DateTime.now());
 
-  factory Capsule.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data() ?? const {};
+  factory Capsule.fromRow(Map<String, dynamic> d) {
     return Capsule(
-      id: doc.id,
-      createdBy: d['createdBy'] as String? ?? '',
-      recipientId: d['recipientId'] as String? ?? '',
-      openAt: tsToDate(d['openAt']) ?? DateTime.now(),
+      id: d['id'] as String,
+      createdBy: d['created_by'] as String? ?? '',
+      recipientId: d['recipient_id'] as String? ?? '',
+      openAt: tsToDate(d['open_at']) ?? DateTime.now(),
       title: d['title'] as String? ?? '',
-      createdAt: tsToDate(d['createdAt']),
-      hasPhoto: d['hasPhoto'] as bool? ?? false,
-      hasVideo: d['hasVideo'] as bool? ?? false,
-      hasAudio: d['hasAudio'] as bool? ?? false,
+      createdAt: tsToDate(d['created_at']),
+      hasPhoto: d['has_photo'] as bool? ?? false,
+      hasVideo: d['has_video'] as bool? ?? false,
+      hasAudio: d['has_audio'] as bool? ?? false,
     );
   }
 }
@@ -69,8 +66,7 @@ class CapsuleContent {
   final String message;
   final List<CapsuleMediaRef> media;
 
-  factory CapsuleContent.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data() ?? const {};
+  factory CapsuleContent.fromRow(Map<String, dynamic> d) {
     return CapsuleContent(
       message: d['message'] as String? ?? '',
       media: ((d['media'] as List?) ?? const [])

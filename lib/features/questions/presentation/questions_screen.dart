@@ -41,11 +41,16 @@ class QuestionsScreen extends ConsumerWidget {
                     const Icon(Icons.wb_sunny_outlined, color: AppColors.rose, size: 20),
                     const SizedBox(width: 8),
                     Text('Bugünün Sorusu', style: context.text.labelLarge?.copyWith(color: AppColors.rose)),
-                    const Spacer(),
+                    const SizedBox(width: 12),
                     if (daily != null)
-                      Text(
-                        '${daily.category.emoji} ${daily.category.label}',
-                        style: context.text.labelSmall?.copyWith(color: Colors.white70),
+                      Expanded(
+                        child: Text(
+                          '${daily.category.emoji} ${daily.category.label}',
+                          textAlign: TextAlign.end,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: context.text.labelSmall?.copyWith(color: Colors.white70),
+                        ),
                       ),
                   ],
                 ),

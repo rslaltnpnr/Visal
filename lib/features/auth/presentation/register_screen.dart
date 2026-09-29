@@ -38,11 +38,25 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     FocusScope.of(context).unfocus();
     setState(() => _loading = true);
     try {
-      await ref.read(authRepositoryProvider).register(
+      final result = await ref.read(authRepositoryProvider).register(
             name: _name.text,
             email: _email.text,
             password: _password.text,
           );
+      if (result == RegisterResult.confirmEmail && mounted) {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('E-postanı doğrula'),
+            content: Text(
+              '${_email.text.trim()} adresine bir doğrulama bağlantısı gönderdik. '
+              'Bağlantıya dokunduktan sonra giriş yapabilirsin.',
+            ),
+            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Tamam'))],
+          ),
+        );
+        if (mounted) context.go(Routes.login);
+      }
     } catch (e) {
       if (mounted) context.showError(e);
     } finally {

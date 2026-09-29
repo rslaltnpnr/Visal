@@ -71,7 +71,7 @@ class _VoicePlayerState extends State<VoicePlayer> {
           setState(() => _playing = s.playing && s.processingState != ProcessingState.completed);
         }));
       try {
-        await p.setUrl(widget.url);
+        widget.url.startsWith('/') ? await p.setFilePath(widget.url) : await p.setUrl(widget.url);
       } catch (_) {}
       if (mounted) setState(() => _loading = false);
     }

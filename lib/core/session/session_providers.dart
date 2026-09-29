@@ -1,29 +1,33 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../features/auth/data/auth_repository.dart';
 import '../../features/auth/domain/app_user.dart';
 import '../../features/pairing/domain/couple.dart';
-import '../services/firebase_providers.dart';
+import '../services/supabase_providers.dart';
 
-/// Firebase Auth oturumu.
-final authStateProvider = StreamProvider<User?>(
-  (ref) => ref.watch(authRepositoryProvider).authStateChanges(),
-);
+/// Supabase oturumu. İlk değer mevcut oturumdan gelir.
+final authStateProvider = StreamProvider<User?>((ref) async* {
+  final auth = ref.watch(supabaseProvider).auth;
+  yield auth.currentUser;
+  await for (final state in auth.onAuthStateChange) {
+    yield state.session?.user;
+  }
+});
 
 final currentUidProvider = Provider<String?>(
-  (ref) => ref.watch(authStateProvider).value?.uid,
+  (ref) => ref.watch(authStateProvider).value?.id,
 );
 
-/// users/{uid} canlı akışı.
+/// profiles satırı (canlı).
 final currentUserProvider = StreamProvider<AppUser?>((ref) {
   final uid = ref.watch(currentUidProvider);
   if (uid == null) return Stream.value(null);
   return ref
-      .watch(firestoreProvider)
-      .userDoc(uid)
-      .snapshots()
-      .map((s) => s.exists ? AppUser.fromDoc(s) : null);
+      .watch(supabaseProvider)
+      .from('profiles')
+      .stream(primaryKey: ['id'])
+      .eq('id', uid)
+      .map((rows) => rows.isEmpty ? null : AppUser.fromRow(rows.first));
 });
 
 final coupleIdProvider = Provider<String?>(
@@ -42,10 +46,11 @@ final coupleProvider = StreamProvider<Couple?>((ref) {
   final id = ref.watch(coupleIdProvider);
   if (id == null) return Stream.value(null);
   return ref
-      .watch(firestoreProvider)
-      .coupleDoc(id)
-      .snapshots()
-      .map((s) => s.exists ? Couple.fromDoc(s) : null);
+      .watch(supabaseProvider)
+      .from('couples')
+      .stream(primaryKey: ['id'])
+      .eq('id', id)
+      .map((rows) => rows.isEmpty ? null : Couple.fromRow(rows.first));
 });
 
 final partnerIdProvider = Provider<String?>((ref) {
@@ -56,22 +61,27 @@ final partnerIdProvider = Provider<String?>((ref) {
   return p.isEmpty ? null : p;
 });
 
-final memberProfileProvider =
-    StreamProvider.family<MemberProfile?, String>((ref, uid) {
+/// Çiftin iki üyesinin paylaşılan profil kopyaları.
+final coupleMembersProvider = StreamProvider<List<MemberProfile>>((ref) {
   final coupleId = ref.watch(coupleIdProvider);
-  if (coupleId == null) return Stream.value(null);
+  if (coupleId == null) return Stream.value(const []);
   return ref
-      .watch(firestoreProvider)
-      .coupleCol(coupleId, 'profiles')
-      .doc(uid)
-      .snapshots()
-      .map((s) => s.exists ? MemberProfile.fromDoc(s) : null);
+      .watch(supabaseProvider)
+      .from('couple_members')
+      .stream(primaryKey: ['couple_id', 'user_id'])
+      .eq('couple_id', coupleId)
+      .map((rows) => rows.map(MemberProfile.fromRow).toList());
+});
+
+final memberProfileProvider = Provider.family<MemberProfile?, String>((ref, uid) {
+  final members = ref.watch(coupleMembersProvider).value ?? const [];
+  return members.where((m) => m.uid == uid).firstOrNull;
 });
 
 final partnerProfileProvider = Provider<MemberProfile?>((ref) {
   final pid = ref.watch(partnerIdProvider);
   if (pid == null) return null;
-  return ref.watch(memberProfileProvider(pid)).value;
+  return ref.watch(memberProfileProvider(pid));
 });
 
 /// UI'da "Partnerin" yerine kullanılacak ad.

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
@@ -91,7 +93,9 @@ class _VideoView extends StatefulWidget {
 }
 
 class _VideoViewState extends State<_VideoView> {
-  late final VideoPlayerController _c = VideoPlayerController.networkUrl(Uri.parse(widget.url))
+  late final VideoPlayerController _c = (widget.url.startsWith('/')
+      ? VideoPlayerController.file(File(widget.url))
+      : VideoPlayerController.networkUrl(Uri.parse(widget.url)))
     ..initialize().then((_) {
       if (mounted) {
         setState(() {});

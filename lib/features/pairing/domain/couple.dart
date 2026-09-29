@@ -1,8 +1,6 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 import '../../../core/utils/date_x.dart';
 
-/// couples/{coupleId}
+/// couples tablosu
 class Couple {
   const Couple({
     required this.id,
@@ -22,8 +20,7 @@ class Couple {
   final String? coverPhoto;
   final DateTime? createdAt;
 
-  String partnerOf(String uid) =>
-      members.firstWhere((m) => m != uid, orElse: () => '');
+  String partnerOf(String uid) => members.firstWhere((m) => m != uid, orElse: () => '');
 
   /// Gün sayacı: ilişki başlangıcı yoksa eşleşme tarihi.
   DateTime? get togetherSince => relationshipStartDate ?? createdAt;
@@ -31,22 +28,18 @@ class Couple {
   /// Yıldönümü yoksa ilişki başlangıcı kullanılır.
   DateTime? get effectiveAnniversary => anniversaryDate ?? relationshipStartDate;
 
-  factory Couple.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data() ?? const {};
-    return Couple(
-      id: doc.id,
-      members: List<String>.from(d['members'] as List? ?? const []),
-      relationshipStartDate: tsToDate(d['relationshipStartDate']),
-      anniversaryDate: tsToDate(d['anniversaryDate']),
-      theme: d['theme'] as String?,
-      coverPhoto: d['coverPhoto'] as String?,
-      createdAt: tsToDate(d['createdAt']),
-    );
-  }
+  factory Couple.fromRow(Map<String, dynamic> d) => Couple(
+        id: d['id'] as String,
+        members: List<String>.from(d['members'] as List? ?? const []),
+        relationshipStartDate: tsToDate(d['relationship_start_date']),
+        anniversaryDate: tsToDate(d['anniversary_date']),
+        theme: d['theme'] as String?,
+        coverPhoto: d['cover_photo'] as String?,
+        createdAt: tsToDate(d['created_at']),
+      );
 }
 
-/// couples/{coupleId}/profiles/{uid} — partnerin görebildiği profil kopyası.
-/// users/{uid} yalnızca sahibine açık olduğundan partner bilgisi buradan okunur.
+/// couple_members tablosu — partnerin görebildiği profil kopyası.
 class MemberProfile {
   const MemberProfile({
     required this.uid,
@@ -54,6 +47,7 @@ class MemberProfile {
     this.photoUrl,
     this.birthday,
     this.moodVisible = true,
+    this.lastSeen,
   });
 
   final String uid;
@@ -61,17 +55,16 @@ class MemberProfile {
   final String? photoUrl;
   final DateTime? birthday;
   final bool moodVisible;
+  final DateTime? lastSeen;
 
   String get firstName => name.trim().split(' ').first;
 
-  factory MemberProfile.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data() ?? const {};
-    return MemberProfile(
-      uid: doc.id,
-      name: d['name'] as String? ?? '',
-      photoUrl: d['photoUrl'] as String?,
-      birthday: tsToDate(d['birthday']),
-      moodVisible: d['moodVisible'] as bool? ?? true,
-    );
-  }
+  factory MemberProfile.fromRow(Map<String, dynamic> d) => MemberProfile(
+        uid: d['user_id'] as String,
+        name: d['name'] as String? ?? '',
+        photoUrl: d['photo_url'] as String?,
+        birthday: tsToDate(d['birthday']),
+        moodVisible: d['mood_visible'] as bool? ?? true,
+        lastSeen: tsToDate(d['last_seen']),
+      );
 }

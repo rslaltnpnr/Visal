@@ -6,6 +6,7 @@ abstract final class Routes {
   static const login = '/login';
   static const register = '/register';
   static const forgot = '/forgot';
+  static const resetPassword = '/reset-password';
 
   static const pairing = '/pairing';
   static const pairingInvite = '/pairing/invite';
