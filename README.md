@@ -18,7 +18,7 @@ Edge Functions). Push bildirimleri için yalnızca Firebase Cloud Messaging kull
 | **Kimlik** | E-posta/şifre, şifre sıfırlama, Google ile giriş, Apple ile giriş (iOS) |
 | **Eşleştirme** | `VISAL-4X72Q` davet kodu + QR, kod girme / QR tarama, "X sizinle VISAL'da eşleşmek istiyor" kabul/ret, eşleşme animasyonu. Her kullanıcı tek partnerle eşleşir; eşleşme yalnızca veritabanı fonksiyonlarıyla (RPC) yapılır |
 | **Biz (ana ekran)** | Kapak fotoğraflı hero, otomatik gün sayacı, İlişki Özetimiz (gün/anı/plan), Hızlı Erişim, Bugünün Sorusu, Yaklaşan, ruh hali, "X yıl önce bugün", Anı Kapsülü ve Hikâyemiz kartları |
-| **Sohbet** | Metin, fotoğraf, video, sesli mesaj, dosya, emoji, GIF altyapısı (Tenor), yanıtla (kaydırarak da), düzenle, benden/herkesten sil, tepki, sabitle, gönderildi/okundu, yazıyor, çevrimiçi/son görülme, hızlı sevgi mesajları + "❤️ Partnerin seni düşünüyor" animasyonu, sayfalı sonsuz kaydırma, yükleme ilerlemesi |
+| **Sohbet** | Metin, fotoğraf, video, sesli mesaj, dosya, emoji, GIF (GIPHY), yanıtla (kaydırarak da), düzenle, benden/herkesten sil, tepki, sabitle, gönderildi/okundu, yazıyor, çevrimiçi/son görülme, hızlı sevgi mesajları + "❤️ Partnerin seni düşünüyor" animasyonu, sayfalı sonsuz kaydırma, yükleme ilerlemesi |
 | **Anılar** | Yıl gruplu zaman çizelgesi ↔ ızgara, filtreler (Tümü/Fotoğraflar/Videolar/Özel Günler/Seyahat), çoklu medya, konum, emoji, şarkı bağlantısı, tam ekran görüntüleyici, Bizim Hikâyemiz zaman çizelgesi |
 | **Anı Kapsülü** | Mesaj + fotoğraf + video + ses, açılma tarihi, "Kapsülü Kilitle"; içerik tarihten önce **RLS kurallarıyla** kilitli, tarihinde push bildirim |
 | **Sorular** | 10 kategori, 120 soru, çifte özel deterministik günün sorusu; cevaplar ikisi de cevaplayınca açılır (kurallarla zorunlu) |
@@ -122,8 +122,8 @@ bash supabase/tests/run.sh
    Google düğmesi gösterilmez.
 7. **Apple ile giriş (iOS):** Apple Developer'da "Sign in with Apple" yeteneğini açın, Supabase'de Apple sağlayıcısını
    yapılandırın (entitlement dosyası hazırdır: `ios/Runner/Runner.entitlements`).
-8. **GIF (isteğe bağlı):** Google Cloud'da **Tenor API**'yi etkinleştirip bir API anahtarı oluşturun ve
-   `TENOR_API_KEY` secret'ı yapın. Anahtar yoksa GIF seçeneği gizlenir.
+8. **GIF (isteğe bağlı):** [developers.giphy.com](https://developers.giphy.com) → *Create an App* → **API** ile ücretsiz
+   anahtar alın ve GitHub'da `GIPHY_API_KEY` secret'ı yapın. Anahtar yoksa GIF seçeneği gizlenir.
 9. **Yayın imzası (Android):** Kalıcı yükleme anahtarı GitHub'da `ANDROID_KEYSTORE_BASE64` (keystore'un base64 hâli)
    ve `ANDROID_KEYSTORE_PASSWORD` secret'larıyla verilir (alias: `visal`, değiştirmek için `ANDROID_KEY_ALIAS`
    değişkeni). Yerelde `android/key.properties.example` → `key.properties`. Anahtar yoksa APK geçici anahtarla

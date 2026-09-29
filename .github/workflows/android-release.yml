@@ -96,12 +96,14 @@ jobs:
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY || secrets.SUPABASE_ANON_KEY }}
           GOOGLE_SERVER_CLIENT_ID: ${{ vars.GOOGLE_SERVER_CLIENT_ID || secrets.GOOGLE_SERVER_CLIENT_ID }}
           TENOR_API_KEY: ${{ secrets.TENOR_API_KEY }}
+          GIPHY_API_KEY: ${{ vars.GIPHY_API_KEY || secrets.GIPHY_API_KEY }}
         run: |
           ARGS=()
           [ -n "$SUPABASE_URL" ] && ARGS+=("--dart-define=SUPABASE_URL=$SUPABASE_URL")
           [ -n "$SUPABASE_ANON_KEY" ] && ARGS+=("--dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY")
           [ -n "$GOOGLE_SERVER_CLIENT_ID" ] && ARGS+=("--dart-define=GOOGLE_SERVER_CLIENT_ID=$GOOGLE_SERVER_CLIENT_ID")
           [ -n "$TENOR_API_KEY" ] && ARGS+=("--dart-define=TENOR_API_KEY=$TENOR_API_KEY")
+          [ -n "$GIPHY_API_KEY" ] && ARGS+=("--dart-define=GIPHY_API_KEY=$GIPHY_API_KEY")
           while IFS= read -r d; do if [ -n "$d" ]; then ARGS+=("$d"); fi; done <<< "${FIREBASE_DEFINES:-}"
           flutter build apk --release "${ARGS[@]}"
 
