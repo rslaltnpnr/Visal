@@ -87,7 +87,7 @@ class _GifPickerState extends ConsumerState<_GifPicker> {
           ),
           Padding(
             padding: const EdgeInsets.all(8),
-            child: Text('Powered by Tenor', style: Theme.of(context).textTheme.labelSmall),
+            child: Text(ref.read(gifRepositoryProvider).attribution, style: Theme.of(context).textTheme.labelSmall),
           ),
         ],
       ),
