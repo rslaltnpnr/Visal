@@ -1,0 +1,64 @@
+name: Firebase Deploy
+
+# Güvenlik kuralları, indeksler ve Cloud Functions'ı Firebase'e yükler.
+# Gerekli secret: FIREBASE_SERVICE_ACCOUNT (servis hesabı JSON anahtarı)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "firestore.rules"
+      - "firestore.indexes.json"
+      - "storage.rules"
+      - "database.rules.json"
+      - "firebase.json"
+      - "functions/**"
+
+concurrency:
+  group: firebase-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Secret kontrolü
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
+            echo "::warning::FIREBASE_SERVICE_ACCOUNT secret tanımlı değil; deploy atlandı."
+            echo "SKIP=1" >> "$GITHUB_ENV"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: env.SKIP != '1'
+        with:
+          node-version: "22"
+
+      - name: Kimlik ve proje
+        if: env.SKIP != '1'
+        run: |
+          echo "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> "$GITHUB_ENV"
+          echo "PROJECT_ID=$(jq -r .project_id "$RUNNER_TEMP/sa.json")" >> "$GITHUB_ENV"
+
+      - name: Functions derle
+        if: env.SKIP != '1'
+        working-directory: functions
+        run: |
+          npm ci
+          npm run build
+          # Test aşamasında (Play Store dışı APK) App Check zorunlu değil.
+          echo "ENFORCE_APP_CHECK=${{ vars.ENFORCE_APP_CHECK || 'false' }}" > .env
+
+      - name: Deploy
+        if: env.SKIP != '1'
+        run: |
+          npx --yes firebase-tools@14 deploy \
+            --project "$PROJECT_ID" \
+            --only firestore,storage,database,functions \
+            --force --non-interactive
