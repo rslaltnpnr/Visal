@@ -73,7 +73,17 @@ jobs:
             echo "::warning::ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD yok; APK geçici anahtarla imzalanıyor."
             exit 0
           fi
-          printf '%s' "$KEYSTORE_B64" | tr -d '[:space:]' | base64 -d > android/app/upload-keystore.jks
+          # Yapıştırılan metin başlık/boş satır içerse ya da satırlara bölünmüş olsa bile
+          # ardışık base64 satırları birleştirilir ve en uzun blok alınır.
+          B64=$(printf '%s\n' "$KEYSTORE_B64" | tr -d '\r' | awk '
+            { gsub(/^[ \t]+|[ \t]+$/, "") }
+            /^[A-Za-z0-9+\/=]+$/ { cur = cur $0; next }
+            { if (length(cur) > length(best)) best = cur; cur = "" }
+            END { if (length(cur) > length(best)) best = cur; print best }')
+          if [ "${#B64}" -lt 1000 ] || ! printf '%s' "$B64" | base64 -d > android/app/upload-keystore.jks 2>/dev/null; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 geçersiz (${#B64} karakterlik parça bulundu). visal-imza-anahtari.txt dosyasındaki 'ANDROID_KEYSTORE_BASE64' başlığının altındaki uzun satırın tamamını, başka hiçbir şey eklemeden yapıştırın."
+            exit 1
+          fi
           {
             echo "storeFile=upload-keystore.jks"
             echo "storePassword=$KEYSTORE_PASSWORD"
