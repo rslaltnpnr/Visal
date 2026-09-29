@@ -150,14 +150,15 @@ class _SocialAuthButtonsState extends ConsumerState<SocialAuthButtons> {
     final repo = ref.read(authRepositoryProvider);
     return Column(
       children: [
-        _SocialButton(
-          label: 'Google ile devam et',
-          leading: const _GoogleG(),
-          loading: _busy == 'google',
-          onPressed: _busy != null ? null : () => _run('google', repo.signInWithGoogle),
-        ),
+        if (AuthRepository.googleSignInSupported)
+          _SocialButton(
+            label: 'Google ile devam et',
+            leading: const _GoogleG(),
+            loading: _busy == 'google',
+            onPressed: _busy != null ? null : () => _run('google', repo.signInWithGoogle),
+          ),
         if (AuthRepository.appleSignInSupported) ...[
-          const SizedBox(height: 12),
+          if (AuthRepository.googleSignInSupported) const SizedBox(height: 12),
           _SocialButton(
             label: 'Apple ile devam et',
             leading: Icon(Icons.apple, size: 24, color: context.palette.textPrimary),

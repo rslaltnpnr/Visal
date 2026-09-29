@@ -120,8 +120,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         ),
         const SizedBox(height: 24),
         PrimaryButton(label: 'Hesap Oluştur', onPressed: _submit, loading: _loading),
-        const OrDivider(),
-        const SocialAuthButtons(),
+        if (AuthRepository.anySocialSignIn) ...[
+          const OrDivider(),
+          const SocialAuthButtons(),
+        ],
         const SizedBox(height: 24),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,

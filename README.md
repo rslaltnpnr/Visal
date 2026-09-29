@@ -115,12 +115,19 @@ bash supabase/tests/run.sh
    gerekli değerleri buradan alır). Proje Ayarları → Hizmet hesapları → **Yeni özel anahtar oluştur** ile inen JSON'u
    `FCM_SERVICE_ACCOUNT` secret'ı yapın ve Supabase Deploy'u yeniden çalıştırın (`SUPABASE_ACCESS_TOKEN` Edge Function
    ve secret yazma yetkisine sahip olmalı). Firebase olmadan bildirimler uygulama içi bildirim kutusunda görünür.
-6. **Google ile giriş (isteğe bağlı):** Google Cloud'da OAuth istemcisi oluşturup Supabase → Providers → Google'a
-   ekleyin; web istemci kimliğini `GOOGLE_SERVER_CLIENT_ID` değişkeni olarak verin.
+6. **Google ile giriş (isteğe bağlı):** Google Cloud Console → *APIs & Services → Credentials*:
+   **Web application** türünde OAuth istemcisi (kimliği + gizli anahtarı Supabase → Authentication → Providers →
+   Google'a girilir) ve paket adı `app.visal.visal` ile imza anahtarının SHA-1 parmak izini taşıyan **Android**
+   istemcisi oluşturun. Web istemci kimliğini GitHub'da `GOOGLE_SERVER_CLIENT_ID` değişkeni yapın. Değişken yoksa
+   Google düğmesi gösterilmez.
 7. **Apple ile giriş (iOS):** Apple Developer'da "Sign in with Apple" yeteneğini açın, Supabase'de Apple sağlayıcısını
    yapılandırın (entitlement dosyası hazırdır: `ios/Runner/Runner.entitlements`).
-8. **GIF (isteğe bağlı):** `TENOR_API_KEY` secret'ı.
-9. **Yayın imzası (Android):** `android/key.properties.example` dosyasını `key.properties` olarak kopyalayıp doldurun.
+8. **GIF (isteğe bağlı):** Google Cloud'da **Tenor API**'yi etkinleştirip bir API anahtarı oluşturun ve
+   `TENOR_API_KEY` secret'ı yapın. Anahtar yoksa GIF seçeneği gizlenir.
+9. **Yayın imzası (Android):** Kalıcı yükleme anahtarı GitHub'da `ANDROID_KEYSTORE_BASE64` (keystore'un base64 hâli)
+   ve `ANDROID_KEYSTORE_PASSWORD` secret'larıyla verilir (alias: `visal`, değiştirmek için `ANDROID_KEY_ALIAS`
+   değişkeni). Yerelde `android/key.properties.example` → `key.properties`. Anahtar yoksa APK geçici anahtarla
+   imzalanır ve güncellemeler eski sürümün üzerine kurulamaz.
 
 Her `main` / `ccr-*` push'unda **Android APK Release** iş akışı APK'yı derleyip GitHub Releases'a ekler.
 

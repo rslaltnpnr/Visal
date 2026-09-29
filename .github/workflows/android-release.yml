@@ -60,6 +60,30 @@ jobs:
           } >> "$GITHUB_ENV"
           echo "Firebase push yapılandırması eklendi."
 
+      # Kalıcı yükleme (upload) anahtarı: ANDROID_KEYSTORE_BASE64 + ANDROID_KEYSTORE_PASSWORD.
+      # Yoksa her derleme farklı bir geçici anahtarla imzalanır ve güncellemeler
+      # eski sürümün üzerine kurulamaz.
+      - name: İmza anahtarı
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ vars.ANDROID_KEY_ALIAS || 'visal' }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::warning::ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD yok; APK geçici anahtarla imzalanıyor."
+            exit 0
+          fi
+          printf '%s' "$KEYSTORE_B64" | tr -d '[:space:]' | base64 -d > android/app/upload-keystore.jks
+          {
+            echo "storeFile=upload-keystore.jks"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyPassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+          } > android/key.properties
+          keytool -list -keystore android/app/upload-keystore.jks -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" > /dev/null \
+            || { echo "::error::İmza anahtarı açılamadı: şifre veya dosya hatalı."; exit 1; }
+          echo "Kalıcı imza anahtarı kullanılıyor."
+
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test

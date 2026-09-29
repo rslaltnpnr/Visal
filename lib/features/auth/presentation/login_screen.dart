@@ -82,8 +82,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         ),
         const SizedBox(height: 12),
         PrimaryButton(label: 'Giriş Yap', onPressed: _submit, loading: _loading),
-        const OrDivider(),
-        const SocialAuthButtons(),
+        if (AuthRepository.anySocialSignIn) ...[
+          const OrDivider(),
+          const SocialAuthButtons(),
+        ],
         const SizedBox(height: 28),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,

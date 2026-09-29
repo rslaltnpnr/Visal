@@ -104,6 +104,11 @@ class AuthRepository {
   /// Xcode'da "Sign in with Apple" yeteneği açık olmalıdır.
   static bool get appleSignInSupported => !kIsWeb && Platform.isIOS;
 
+  /// Google girişi için web istemci kimliği derlemeye verilmiş olmalı.
+  static bool get googleSignInSupported => !kIsWeb && _googleServerClientId.isNotEmpty;
+
+  static bool get anySocialSignIn => googleSignInSupported || appleSignInSupported;
+
   Future<void> signInWithApple() async {
     try {
       final rawNonce = _generateNonce();
