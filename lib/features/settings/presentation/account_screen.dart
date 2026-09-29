@@ -1,8 +1,8 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../../core/services/firebase_providers.dart';
 import '../../../core/session/session_providers.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
@@ -57,7 +57,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   @override
   Widget build(BuildContext context) {
     final me = ref.watch(currentUserProvider).value;
-    final isPasswordUser = FirebaseAuth.instance.currentUser?.providerData.any((p) => p.providerId == 'password') ?? false;
+    final isPasswordUser = ref.watch(firebaseAuthProvider).currentUser?.providerData.any((p) => p.providerId == 'password') ?? false;
     return Scaffold(
       appBar: AppBar(title: const Text('Hesap')),
       body: ListView(

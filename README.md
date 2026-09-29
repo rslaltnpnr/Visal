@@ -81,6 +81,18 @@ Kural testleri:
 cd rules-test && npm install && npm test   # Java 11+ gerekir
 ```
 
+## Demo modu (Firebase olmadan deneme)
+
+`lib/firebase_options.dart` henüz `flutterfire configure` ile üretilmemişse (veya
+`--dart-define=DEMO_MODE=true` verilirse) uygulama **demo modunda** açılır:
+
+- Cihaz içinde sahte Firestore/Auth/Storage ve örnek verilerle dolu bir çift alanı kullanılır.
+- Giriş ekranındaki **"Demo olarak gir"** butonu veya herhangi bir e-posta/şifre ile giriş yapılır.
+- Demo partner "Ayşe" mesajlara cevap verir, okundu işaretler, bir süre sonra "❤️ seni düşünüyor" gönderir.
+- Fotoğraf/video/ses dosyaları cihazda kalır; veriler uygulama kapanınca sıfırlanır.
+
+GitHub Actions `GOOGLE_SERVICES_JSON` ve `FIREBASE_OPTIONS_DART` secret'ları tanımlı değilken demo APK üretir.
+
 ## Kurulum
 
 1. **Araçlar:** Flutter 3.47+ (Dart 3.13+), Node 22, Firebase CLI, FlutterFire CLI.

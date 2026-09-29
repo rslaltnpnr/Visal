@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
+import '../../../core/demo/demo_mode.dart';
 import '../../../core/services/firebase_providers.dart';
 import '../../../core/utils/failure.dart';
 import '../../settings/domain/user_settings.dart';
@@ -53,6 +54,8 @@ class AuthRepository {
     required String email,
     required String password,
   }) async {
+    // Demo modunda tüm girişler hazır demo hesabına yönlenir.
+    if (kDemoMode) return signInWithEmail(email, password);
     try {
       final cred = await _auth.createUserWithEmailAndPassword(
         email: email.trim(),
@@ -67,6 +70,7 @@ class AuthRepository {
   }
 
   Future<void> sendPasswordReset(String email) async {
+    if (kDemoMode) return;
     try {
       await _auth.setLanguageCode('tr');
       await _auth.sendPasswordResetEmail(email: email.trim());
@@ -76,6 +80,7 @@ class AuthRepository {
   }
 
   Future<void> signInWithGoogle() async {
+    if (kDemoMode) return signInWithEmail(kDemoEmail, kDemoPassword);
     try {
       final google = GoogleSignIn.instance;
       if (!_googleInitialized) {
@@ -109,6 +114,7 @@ class AuthRepository {
   static bool get appleSignInSupported => !kIsWeb && Platform.isIOS;
 
   Future<void> signInWithApple() async {
+    if (kDemoMode) return signInWithEmail(kDemoEmail, kDemoPassword);
     try {
       final rawNonce = _generateNonce();
       final nonce = sha256.convert(utf8.encode(rawNonce)).toString();
@@ -144,7 +150,7 @@ class AuthRepository {
   }
 
   Future<void> signOut() async {
-    if (_googleInitialized) {
+    if (_googleInitialized && !kDemoMode) {
       await GoogleSignIn.instance.signOut();
     }
     await _auth.signOut();

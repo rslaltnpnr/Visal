@@ -13,6 +13,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app.dart';
+import 'core/demo/demo_mode.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/preferences_service.dart';
 import 'core/theme/app_assets.dart';
@@ -23,14 +24,16 @@ Future<void> main() async {
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  await FirebaseAppCheck.instance.activate(
+  if (!kDemoMode) {
+    await FirebaseAppCheck.instance.activate(
     providerAndroid: kReleaseMode
         ? const AndroidPlayIntegrityProvider()
         : const AndroidDebugProvider(),
     providerApple: kReleaseMode
         ? const AppleAppAttestWithDeviceCheckFallbackProvider()
         : const AppleDebugProvider(),
-  );
+    );
+  }
 
   // Çevrimdışı Firestore desteği.
   FirebaseFirestore.instance.settings = const Settings(
@@ -51,7 +54,10 @@ Future<void> main() async {
 
   runApp(
     ProviderScope(
-      overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        if (kDemoMode) ...await demoOverrides(),
+      ],
       child: const VisalApp(),
     ),
   );

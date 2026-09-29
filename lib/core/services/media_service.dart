@@ -13,6 +13,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:video_player/video_player.dart';
 
+import '../demo/demo_mode.dart';
 import '../utils/failure.dart';
 import 'firebase_providers.dart';
 
@@ -310,6 +311,14 @@ class MediaService {
     String contentType,
     void Function(double)? onProgress,
   ) async {
+    if (kDemoMode) {
+      // Demo: dosyalar cihazda kalır, yerel yol URL gibi kullanılır.
+      final dir = await getTemporaryDirectory();
+      final file = File(p.join(dir.path, 'demo_${path.replaceAll('/', '_')}'));
+      await file.writeAsBytes(data);
+      onProgress?.call(1);
+      return file.path;
+    }
     final ref = _storage.ref(path);
     final task = ref.putData(data, _meta(contentType));
     _track(task, onProgress);
@@ -323,6 +332,10 @@ class MediaService {
     String contentType,
     void Function(double)? onProgress,
   ) async {
+    if (kDemoMode) {
+      onProgress?.call(1);
+      return file.path;
+    }
     final ref = _storage.ref(path);
     final task = ref.putFile(file, _meta(contentType));
     _track(task, onProgress);
@@ -339,6 +352,7 @@ class MediaService {
   }) async {
     final ext = p.extension(media.path).toLowerCase();
     final path = '$folder/${_uuid.v4()}$ext';
+    if (kDemoMode) return media.path;
     Uint8List? data;
     if (media.kind == MediaKind.image) {
       data = await FlutterImageCompress.compressWithFile(
@@ -357,9 +371,10 @@ class MediaService {
     return ref.fullPath;
   }
 
-  Future<String> downloadUrl(String path) => _storage.ref(path).getDownloadURL();
+  Future<String> downloadUrl(String path) async => kDemoMode ? path : _storage.ref(path).getDownloadURL();
 
   Future<void> deletePaths(Iterable<String> paths) async {
+    if (kDemoMode) return;
     for (final path in paths) {
       try {
         await _storage.ref(path).delete();

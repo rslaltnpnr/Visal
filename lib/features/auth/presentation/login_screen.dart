@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/demo/demo_mode.dart';
 import '../../../core/router/routes.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/validators.dart';
@@ -50,6 +51,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       subtitle: 'İkinize ait dünyaya giriş yapın.',
       showBack: context.canPop(),
       children: [
+        if (kDemoMode) ...[
+          const DemoBanner(),
+          const SizedBox(height: 20),
+        ],
         AutofillGroup(
           child: Form(
             key: _form,

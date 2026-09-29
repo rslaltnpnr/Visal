@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -142,6 +144,10 @@ class NetImage extends StatelessWidget {
       color: context.isDark ? AppColors.darkElevated : AppColors.blush,
     );
     if (url == null || url!.isEmpty) return _clip(placeholder);
+    if (url!.startsWith('/')) {
+      // Yerel dosya (demo modu / gönderim önizlemesi).
+      return _clip(Image.file(File(url!), fit: fit, width: width, height: height, cacheWidth: memCacheWidth));
+    }
     final image = CachedNetworkImage(
       imageUrl: url!,
       fit: fit,

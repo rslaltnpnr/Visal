@@ -164,6 +164,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     _visible = TickerMode.valuesOf(context).enabled;
+    if (ref.watch(coupleIdProvider) == null) {
+      return const Scaffold(body: LoadingView());
+    }
     final state = ref.watch(chatControllerProvider);
     final outbox = ref.watch(chatOutboxProvider);
     final uid = ref.watch(currentUidProvider) ?? '';

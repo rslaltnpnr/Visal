@@ -60,7 +60,9 @@ class _ComposerState extends ConsumerState<Composer> {
   bool _emoji = false;
 
   // Ses kaydı
-  final _recorder = AudioRecorder();
+  // Kayıt başlarken oluşturulur (gereksiz yere mikrofon kanalı açılmaz).
+  AudioRecorder? _recorderInstance;
+  AudioRecorder get _recorder => _recorderInstance ??= AudioRecorder();
   bool _recording = false;
   DateTime? _recordStart;
   Timer? _recordTimer;
@@ -92,7 +94,7 @@ class _ComposerState extends ConsumerState<Composer> {
     _controller.dispose();
     _focus.dispose();
     _recordTimer?.cancel();
-    _recorder.dispose();
+    _recorderInstance?.dispose();
     super.dispose();
   }
 
