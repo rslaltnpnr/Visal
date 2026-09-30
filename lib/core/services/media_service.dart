@@ -35,7 +35,9 @@ class PickedMedia {
   final Duration? duration;
 }
 
-/// Storage'a yüklenmiş medya. Firestore belgelerinde bu harita saklanır.
+/// Storage'a yüklenmiş medya. `url` alanında yeni kayıtlarda kalıcı signed URL
+/// yerine `visal-storage://<bucket>/<path>` referansı saklanır. Eski signed URL
+/// kayıtları geriye dönük uyumluluk için hâlâ okunur.
 class UploadedMedia {
   const UploadedMedia({
     required this.url,
@@ -98,10 +100,16 @@ final mediaServiceProvider = Provider<MediaService>(
   (ref) => MediaService(ref.watch(supabaseProvider).storage),
 );
 
-/// Dosyalar Supabase Storage'da özel (private) kovalarda tutulur. Görüntüleme
-/// için Storage erişim kurallarından geçen uzun ömürlü imzalı bağlantı üretilir
-/// ve kayda yazılır; kapsül dosyaları ise yalnızca yol olarak saklanır ve
-/// açılma zamanında imzalanır.
+/// Private Storage referansını yalnızca görüntüleneceği anda kısa ömürlü URL'ye
+/// çevirir. Böylece DB'ye yıllarca geçerli erişim anahtarı yazılmaz.
+final resolvedStorageUrlProvider = FutureProvider.autoDispose.family<String, String>(
+  (ref, raw) => ref.watch(mediaServiceProvider).resolveUrl(raw),
+);
+
+/// Dosyalar Supabase Storage'da özel (private) kovalarda tutulur. Yeni medya
+/// kayıtlarında signed URL yerine bucket + path referansı saklanır; UI erişim
+/// anında kısa ömürlü signed URL ister. Bu, eşleşme/erişim sona erdiğinde eski
+/// veritabanı kayıtlarının uzun süreli erişim anahtarına dönüşmesini engeller.
 class MediaService {
   MediaService(this._storage);
 
@@ -109,7 +117,7 @@ class MediaService {
 
   static const mediaBucket = 'media';
   static const avatarBucket = 'avatars';
-  static const _longLived = 60 * 60 * 24 * 365 * 10; // 10 yıl
+  static const _storageScheme = 'visal-storage';
   final _picker = ImagePicker();
   static const _uuid = Uuid();
 
@@ -117,6 +125,20 @@ class MediaService {
   static const thumbSide = 480;
   static const maxVideoBytes = 100 * 1024 * 1024;
   static const maxFileBytes = 50 * 1024 * 1024;
+
+  static String storageRef(String bucket, String path) => '$_storageScheme://$bucket/$path';
+
+  static bool isStorageRef(String? value) =>
+      value != null && value.startsWith('$_storageScheme://');
+
+  Future<String> resolveUrl(String raw, {int seconds = 3600}) async {
+    if (!isStorageRef(raw)) return raw;
+    final uri = Uri.parse(raw);
+    final bucket = uri.host;
+    final path = uri.path.startsWith('/') ? uri.path.substring(1) : uri.path;
+    if (bucket.isEmpty || path.isEmpty) throw const AppFailure('Medya yolu geçersiz.');
+    return _storage.from(bucket).createSignedUrl(path, seconds);
+  }
 
   // ---------- Seçim ----------
 
@@ -166,7 +188,7 @@ class MediaService {
 
   // ---------- İşleme + yükleme ----------
 
-  /// [folder] örn. `couples/{coupleId}/chat/{messageId}`
+  /// [folder] örn. `{coupleId}/chat/{messageId}`
   Future<UploadedMedia> upload(
     PickedMedia media, {
     required String folder,
@@ -321,7 +343,7 @@ class MediaService {
     onProgress?.call(0.05);
     await _storage.from(bucket).uploadBinary(path, data, fileOptions: _options(contentType));
     onProgress?.call(1);
-    return _storage.from(bucket).createSignedUrl(path, _longLived);
+    return storageRef(bucket, path);
   }
 
   Future<String> _putFile(
@@ -334,7 +356,7 @@ class MediaService {
     onProgress?.call(0.05);
     await _storage.from(bucket).upload(path, file, fileOptions: _options(contentType));
     onProgress?.call(1);
-    return _storage.from(bucket).createSignedUrl(path, _longLived);
+    return storageRef(bucket, path);
   }
 
   /// Yalnızca yol saklanan içerikler (kapsüller) için: indirme URL'si
@@ -372,21 +394,27 @@ class MediaService {
   }
 
   /// Kısa ömürlü imzalı bağlantı (erişim kuralları o an kontrol edilir).
-  Future<String> signedUrl(String path, {int seconds = 3600}) =>
-      _storage.from(mediaBucket).createSignedUrl(path, seconds);
+  Future<String> signedUrl(String path, {int seconds = 3600, String bucket = mediaBucket}) =>
+      _storage.from(bucket).createSignedUrl(path, seconds);
 
   Future<void> deletePaths(Iterable<String> paths, {String bucket = mediaBucket}) async {
     final list = paths.where((e) => e.isNotEmpty).toList();
     if (list.isEmpty) return;
-    try {
-      await _storage.from(bucket).remove(list);
-    } catch (_) {}
+    await _storage.from(bucket).remove(list);
   }
 
-  /// Bir klasördeki tüm dosyaları (alt klasörler dahil) siler.
+  /// Bir klasördeki tüm dosyaları (alt klasörler dahil) siler. Hatalar bilinçli
+  /// olarak yutulmaz; hesap silme gibi mahremiyet işlemleri eksik temizliği
+  /// başarı sanmamalıdır. Storage listesi sayfalı okunur.
   Future<void> deleteFolder(String folder, {String bucket = mediaBucket}) async {
-    try {
-      final items = await _storage.from(bucket).list(path: folder);
+    const pageSize = 100;
+    var offset = 0;
+    while (true) {
+      final items = await _storage.from(bucket).list(
+            path: folder,
+            searchOptions: SearchOptions(limit: pageSize, offset: offset),
+          );
+      if (items.isEmpty) break;
       final files = <String>[];
       for (final item in items) {
         final full = '$folder/${item.name}';
@@ -397,11 +425,17 @@ class MediaService {
         }
       }
       await deletePaths(files, bucket: bucket);
-    } catch (_) {}
+      if (items.length < pageSize) break;
+      // Dosyalar silindiği için aynı offset'ten devam etmek gerekir; klasörler
+      // listede kaldıysa sonraki tur onları da tekrar güvenle kontrol eder.
+      if (files.isEmpty) {
+        offset += pageSize;
+      }
+    }
   }
 
   FileOptions _options(String contentType) =>
-      FileOptions(contentType: contentType, cacheControl: '31536000', upsert: false);
+      FileOptions(contentType: contentType, cacheControl: '3600', upsert: false);
 
   Future<Size?> _dimensions(Uint8List bytes) async {
     try {
