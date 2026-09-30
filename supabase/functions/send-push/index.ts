@@ -68,7 +68,10 @@ async function googleAccessToken(sa: ServiceAccount): Promise<string> {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth-type:jwt-bearer".replace("type", "grant-type"), assertion: jwt }),
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion: jwt,
+    }),
   });
   if (!res.ok) throw new Error(`OAuth token alınamadı: ${res.status} ${await res.text()}`);
   const json = await res.json();
