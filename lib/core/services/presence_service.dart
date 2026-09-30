@@ -67,8 +67,10 @@ class PresenceService {
 
   /// Uygulama ön plandayken çağrılır.
   Future<void> goOnline(String uid, String coupleId, PrivacySettings privacy) async {
+    final hideRealtime = !privacy.showOnline;
     _privacy = privacy;
     if (_uid == uid && _coupleId == coupleId && _channel != null) {
+      if (hideRealtime && _typing) setTyping(false);
       await _track();
       return;
     }
@@ -155,10 +157,12 @@ class PresenceService {
   }
 
   /// Yazarken çağrılır; 4 sn yazılmazsa otomatik kapanır. Açık sinyal
-  /// en fazla 3 sn'de bir yenilenir.
+  /// en fazla 3 sn'de bir yenilenir. Çevrimiçi görünürlüğü kapalıysa
+  /// yazıyor bilgisi de paylaşılmaz.
   void setTyping(bool typing) {
     final channel = _channel;
     if (channel == null || _uid == null) return;
+    if (typing && !_privacy.showOnline) return;
     _typingTimer?.cancel();
     if (typing) {
       _typingTimer = Timer(const Duration(seconds: 4), () => setTyping(false));
