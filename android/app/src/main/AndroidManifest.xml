@@ -52,6 +52,40 @@
             <!-- Bağlantıları supabase_flutter işler; router'a iletilmez. -->
             <meta-data android:name="flutter_deeplinking_enabled" android:value="false"/>
         </activity>
+        <!-- Ana ekran widget'ları -->
+        <receiver
+            android:name=".widget.TogetherWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_together_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_together_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.LoveWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_love_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_love_info" />
+        </receiver>
+        <!-- ❤️ widget'ının uygulamayı açmadan çalıştırdığı arka plan işi.
+             Dışa kapalı: yalnızca widget'ın kendi PendingIntent'i tetikleyebilir,
+             başka uygulamalar adınıza ❤️ gönderemez. -->
+        <receiver
+            android:name="es.antonborri.home_widget.HomeWidgetBackgroundReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="es.antonborri.home_widget.action.BACKGROUND" />
+            </intent-filter>
+        </receiver>
+
         <!-- FCM varsayılan kanal / renk / ikon -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"

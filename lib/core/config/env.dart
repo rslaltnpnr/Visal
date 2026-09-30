@@ -16,9 +16,19 @@ abstract final class Env {
 
   static bool get supabaseConfigured => supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty;
 
-  /// Push bildirimleri (FCM) için Firebase yapılandırılmış mı?
-  /// Firebase yalnızca bildirim iletimi için kullanılır (ücretsiz Spark planı yeterli).
-  static bool get pushConfigured => !DefaultFirebaseOptions.android.apiKey.startsWith('REPLACE');
+  /// Push bildirimleri (FCM) için aktif platformun Firebase yapılandırması hazır mı?
+  /// Android yapılandırmasının yanlışlıkla iOS'u "hazır" göstermesine izin verilmez.
+  static bool get pushConfigured {
+    try {
+      final options = DefaultFirebaseOptions.currentPlatform;
+      return options.apiKey.isNotEmpty &&
+          !options.apiKey.startsWith('REPLACE') &&
+          options.appId.isNotEmpty &&
+          !options.appId.contains('000000000000');
+    } on UnsupportedError {
+      return false;
+    }
+  }
 
   /// E-posta doğrulama / şifre sıfırlama bağlantılarının uygulamaya dönüş adresi.
   static const authRedirect = 'visal://auth-callback';

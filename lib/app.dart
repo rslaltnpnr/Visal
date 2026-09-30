@@ -14,6 +14,7 @@ import 'core/services/supabase_providers.dart';
 import 'core/session/session_providers.dart';
 import 'core/theme/app_theme.dart';
 import 'features/settings/presentation/lock_screen.dart';
+import 'features/widgets/home_widget_service.dart';
 
 class VisalApp extends ConsumerWidget {
   const VisalApp({super.key});
@@ -30,7 +31,7 @@ class VisalApp extends ConsumerWidget {
       themeMode: themeMode,
       routerConfig: router,
       locale: const Locale('tr', 'TR'),
-      supportedLocales: const [Locale('tr', 'TR'), Locale('en')],
+      supportedLocales: const [Locale('tr', 'TR')],
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
@@ -58,6 +59,7 @@ class _SessionEffectsState extends ConsumerState<SessionEffects>
     with WidgetsBindingObserver {
   StreamSubscription<String>? _tapSub;
   StreamSubscription<AuthState>? _authSub;
+  ProviderSubscription<HomeWidgetData>? _widgetSub;
   String? _registeredUid;
 
   @override
@@ -66,7 +68,12 @@ class _SessionEffectsState extends ConsumerState<SessionEffects>
     WidgetsBinding.instance.addObserver(this);
     final notifications = ref.read(notificationServiceProvider);
     notifications.init();
-    // Şifre sıfırlama bağlantısıyla dönüldüğünde yeni şifre ekranı açılır.
+    HomeWidgetService.init();
+    _widgetSub = ref.listenManual(
+      homeWidgetDataProvider,
+      (_, next) => HomeWidgetService.push(next),
+      fireImmediately: true,
+    );
     _authSub = ref.read(supabaseProvider).auth.onAuthStateChange.listen((state) {
       if (state.event == AuthChangeEvent.passwordRecovery) {
         ref.read(routerProvider).push(Routes.resetPassword);
@@ -91,11 +98,15 @@ class _SessionEffectsState extends ConsumerState<SessionEffects>
     WidgetsBinding.instance.removeObserver(this);
     _tapSub?.cancel();
     _authSub?.cancel();
+    _widgetSub?.close();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      resyncSessionFromStorage(ref.read(sharedPreferencesProvider), ref.read(supabaseProvider).auth);
+    }
     final user = ref.read(currentUserProvider).value;
     final presence = ref.read(presenceServiceProvider);
     if (user == null || !user.isPaired) return;
@@ -173,7 +184,6 @@ class _AppLockGateState extends ConsumerState<AppLockGate>
     switch (state) {
       case AppLifecycleState.inactive:
       case AppLifecycleState.hidden:
-        // Uygulama değiştirici önizlemesinde içeriği gizle.
         final enabled = await ref.read(appLockControllerProvider.notifier).isEnabled();
         if (enabled && mounted) setState(() => _obscured = true);
       case AppLifecycleState.paused:

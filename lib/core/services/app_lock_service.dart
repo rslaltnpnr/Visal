@@ -30,6 +30,7 @@ class AppLockService {
   static const _pinSalt = 'visal_pin_salt';
   static const _biometric = 'visal_biometric_enabled';
   static const _failed = 'visal_pin_failed';
+  static const _lockedUntil = 'visal_pin_locked_until';
 
   Future<bool> isLockEnabled() async => (await _storage.read(key: _pinHash)) != null;
 
@@ -42,19 +43,36 @@ class AppLockService {
     );
     await _storage.write(key: _pinSalt, value: salt);
     await _storage.write(key: _pinHash, value: _hash(pin, salt));
-    await _storage.delete(key: _failed);
+    await _resetFailures();
+  }
+
+  Future<DateTime?> lockoutUntil() async {
+    final raw = await _storage.read(key: _lockedUntil);
+    final ms = int.tryParse(raw ?? '');
+    if (ms == null) return null;
+    final until = DateTime.fromMillisecondsSinceEpoch(ms);
+    if (!DateTime.now().isBefore(until)) {
+      await _storage.delete(key: _lockedUntil);
+      return null;
+    }
+    return until;
   }
 
   Future<bool> verifyPin(String pin) async {
+    if (await lockoutUntil() != null) return false;
     final salt = await _storage.read(key: _pinSalt);
     final hash = await _storage.read(key: _pinHash);
     if (salt == null || hash == null) return true;
     final ok = _hash(pin, salt) == hash;
     if (ok) {
-      await _storage.delete(key: _failed);
+      await _resetFailures();
     } else {
-      final failed = int.tryParse(await _storage.read(key: _failed) ?? '0') ?? 0;
-      await _storage.write(key: _failed, value: '${failed + 1}');
+      final failed = (int.tryParse(await _storage.read(key: _failed) ?? '0') ?? 0) + 1;
+      await _storage.write(key: _failed, value: '$failed');
+      if (failed >= 5) {
+        final until = DateTime.now().add(Duration(seconds: 30 * (failed - 4)));
+        await _storage.write(key: _lockedUntil, value: '${until.millisecondsSinceEpoch}');
+      }
     }
     return ok;
   }
@@ -62,11 +80,16 @@ class AppLockService {
   Future<int> failedAttempts() async =>
       int.tryParse(await _storage.read(key: _failed) ?? '0') ?? 0;
 
+  Future<void> _resetFailures() async {
+    await _storage.delete(key: _failed);
+    await _storage.delete(key: _lockedUntil);
+  }
+
   Future<void> disableLock() async {
     await _storage.delete(key: _pinHash);
     await _storage.delete(key: _pinSalt);
     await _storage.delete(key: _biometric);
-    await _storage.delete(key: _failed);
+    await _resetFailures();
   }
 
   Future<void> setBiometricEnabled(bool enabled) =>

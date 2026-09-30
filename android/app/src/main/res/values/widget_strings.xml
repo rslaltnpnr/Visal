@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_together_name">VISAL · Birlikte</string>
+    <string name="widget_together_desc">Birlikte geçen gün sayınız ve partnerinizin bugünkü ruh hali</string>
+    <string name="widget_love_name">VISAL · Aşk dokunuşu</string>
+    <string name="widget_love_desc">Dokununca partnerine ❤️ gönderir</string>
+    <string name="widget_days_together">gün birlikte</string>
+    <string name="widget_sign_in">VISAL\'e giriş yap</string>
+    <string name="widget_pair_first">Önce eşleşin</string>
+    <string name="widget_love_tap">Dokun, ❤️ gönder</string>
+    <string name="widget_love_to">%1$s için ❤️</string>
+    <color name="widget_bg_start">#2E1A33</color>
+    <color name="widget_bg_end">#140D1B</color>
+    <color name="widget_text">#F8F4EF</color>
+    <color name="widget_text_soft">#B68AA0</color>
+    <color name="widget_rose">#E7A7B1</color>
+</resources>

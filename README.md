@@ -25,6 +25,7 @@ Edge Functions). Push bildirimleri için yalnızca Firebase Cloud Messaging kull
 | **Ruh hali** | Günde bir, 8 emoji; partner görebilir (gizlenebilir), analiz yapılmaz |
 | **Planlar** | Ortak takvim (kategori, saat, konum, not, hatırlatma, tekrar, renk), görevler (Ben/Partnerim/İkimiz), ortak hedefler (ilerleme çubuğu) |
 | **Profil / Ayarlar** | Profil, partner, ilişki başlangıcı, yıldönümü, doğum günü; bildirimler, gizlilik (çevrimiçi, son görülme, okundu, bildirim içeriği gizli modu, ruh hali), tema (Açık / VISAL Dark / Sistem), PIN + parmak izi / Face ID kilidi, partner yönetimi, verileri indir (JSON), hesabı sil |
+| **Ana ekran widget'ları (Android)** | "Birlikte" sayacı (gün + partnerin ruh hali) ve uygulamayı açmadan ❤️ gönderen aşk dokunuşu; uygulama kilidi veya gizli bildirim modunda isim/ruh hali gizlenir |
 | **Bildirimler (FCM)** | Yeni mesaj, partner seni düşünüyor, yeni anı, kapsül açıldı, yaklaşan özel gün, günün sorusu; gizli modda "VISAL — Yeni mesaj" |
 
 ## Mimari
@@ -73,11 +74,13 @@ Storage               media/{couple_id}/{chat|memories|timeline|cover|capsules}/
   `profiles.couple_id`, `couples.members`, mesaj içeriği istemciden doğrudan **değiştirilemez** (RPC'ler kontrol eder).
 - Çift verisine yalnızca `members` içindeki iki kişi erişir; couple_id tahmin edilse bile üçüncü kişi erişemez.
   Eşleşmesi biten alan anında kapanır, 30 gün sonra kalıcı silinir.
-- Depolama kuralları yolu ayrıştırıp üyeliği veritabanından doğrular. Kapsül içeriği ve dosyaları açılma zamanına
-  kadar alıcıya kapalıdır.
+- Depolama kuralları yolu ayrıştırıp üyeliği veritabanından doğrular. Normal private medya veritabanında uzun ömürlü
+  signed URL olarak değil `visal-storage://` referansı olarak tutulur ve yalnızca görüntüleme anında kısa süreli URL üretilir.
+  Kapsül içeriği ve dosyaları açılma zamanına kadar alıcıya kapalıdır.
 - Partnerin soru cevabı, kullanıcı kendi cevabını yazmadan veritabanından hiç dönmez. Gizlenen ruh hali partnere kapalıdır.
 - Realtime değişiklikleri ve çiftin özel kanalı (çevrimiçi / yazıyor) aynı RLS kurallarına tabidir.
-- Push gizli modu ve kategori tercihleri sunucuda uygulanır. Android'de yedekleme kapalı.
+- Push gizli modu ve kategori tercihleri sunucuda uygulanır. Push kuyruğu FCM tesliminden önce silinmez; geçici hatalar
+  yeniden denenir. Android'de yedekleme kapalı.
 
 Veritabanı testleri (PostgreSQL 16 gerekir):
 
@@ -95,18 +98,12 @@ bash supabase/tests/run.sh
    ```bash
    flutter run --dart-define=SUPABASE_URL=https://<ref>.supabase.co --dart-define=SUPABASE_ANON_KEY=<anahtar>
    ```
-3. **Veritabanını kurun:** GitHub *Secrets* altına ekleyin:
-   `SUPABASE_ACCESS_TOKEN` (supabase.com/dashboard/account/tokens), `SUPABASE_DB_PASSWORD`, `SUPABASE_PROJECT_REF`.
-   Ardından **Actions → Supabase Deploy → Run workflow**.
-   *Şifresiz alternatif:* `supabase/setup_all.sql` dosyasının tamamını Supabase → **SQL Editor**'e yapıştırıp
-   **Run**'a basın (dosya `bash supabase/build_setup_sql.sh > supabase/setup_all.sql` ile üretilir). Bu durumda
-   `SUPABASE_DB_PASSWORD` secret'ı gerekmez; iş akışı yalnızca Edge Function'ı yükler. İş; testleri çalıştırır, göçleri uygular, `send-push`
-   fonksiyonunu yükler ve push uç noktasını yapılandırır. Elle kurmak isterseniz:
-   ```bash
-   supabase link --project-ref <ref>
-   supabase db push
-   supabase functions deploy send-push --no-verify-jwt
-   ```
+3. **Veritabanını kurun:** Otomatik ve doğrulanabilir production deploy için GitHub *Secrets* altına
+   `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`, `SUPABASE_PROJECT_REF` değerlerini ekleyin. Ardından
+   **Actions → Supabase Deploy → Run workflow**. Workflow önce RLS/RPC testlerini çalıştırır; gerekli secret'lardan
+   biri eksikse yeşil görünerek atlamak yerine hata verir. Tamamen manuel kurulum gerekiyorsa
+   `bash supabase/build_setup_sql.sh > supabase/setup_all.sql` ile güncel SQL dosyasını üretip Supabase SQL Editor'de
+   çalıştırabilirsiniz; Edge Function ve push secret'ları bu durumda ayrıca Supabase CLI ile deploy edilmelidir.
 4. **Auth ayarları:** Authentication → URL Configuration → Redirect URLs'e `visal://auth-callback` ekleyin
    (e-posta doğrulama ve şifre sıfırlama uygulamaya döner). Hızlı test için Authentication → Providers → Email
    altında "Confirm email" kapatılabilir.
@@ -120,8 +117,9 @@ bash supabase/tests/run.sh
    Google'a girilir) ve paket adı `app.visal.visal` ile imza anahtarının SHA-1 parmak izini taşıyan **Android**
    istemcisi oluşturun. Web istemci kimliğini GitHub'da `GOOGLE_SERVER_CLIENT_ID` değişkeni yapın. Değişken yoksa
    Google düğmesi gösterilmez.
-7. **Apple ile giriş (iOS):** Apple Developer'da "Sign in with Apple" yeteneğini açın, Supabase'de Apple sağlayıcısını
-   yapılandırın (entitlement dosyası hazırdır: `ios/Runner/Runner.entitlements`).
+7. **Apple / iOS yapılandırması:** iOS kaynakları kod tabanında bulunur ancak gerçek dağıtım için Firebase iOS App,
+   `GoogleService-Info.plist`/iOS Firebase değerleri, reversed client ID ve Apple Developer "Sign in with Apple"
+   kimlikleri ayrıca tanımlanmalıdır. Repo placeholder kimliklerle iOS'u production-ready kabul etmez.
 8. **GIF (isteğe bağlı):** [developers.giphy.com](https://developers.giphy.com) → *Create an App* → **API** ile ücretsiz
    anahtar alın ve GitHub'da `GIPHY_API_KEY` secret'ı yapın. Anahtar yoksa GIF seçeneği gizlenir.
 9. **Yayın imzası (Android):** Kalıcı yükleme anahtarı GitHub'da `ANDROID_KEYSTORE_BASE64` (keystore'un base64 hâli)
@@ -129,7 +127,8 @@ bash supabase/tests/run.sh
    değişkeni). Yerelde `android/key.properties.example` → `key.properties`. Anahtar yoksa APK geçici anahtarla
    imzalanır ve güncellemeler eski sürümün üzerine kurulamaz.
 
-Her `main` / `ccr-*` push'unda **Android APK Release** iş akışı APK'yı derleyip GitHub Releases'a ekler.
+Her `main` / `ccr-*` push'unda **Android APK Release** iş akışı analiz ve testleri çalıştırır, monoton artan Android
+`versionCode` ile APK'yı derler ve GitHub Releases'a ekler.
 
 ## Marka varlıkları
 

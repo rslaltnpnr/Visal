@@ -7,7 +7,7 @@ import 'package:uuid/uuid.dart';
 final supabaseProvider = Provider<SupabaseClient>((_) => Supabase.instance.client);
 
 /// Yerel değişiklik sinyali: bir tablo yazıldığında o tabloyu izleyen
-/// sorgular hemen yenilenir (Realtime silme olaylarını filtreleyemediği için).
+/// sorgular hemen yenilenir. Uzak cihaz değişiklikleri Realtime ile izlenir.
 class TableBus {
   final _controller = StreamController<String>.broadcast();
 
@@ -24,9 +24,12 @@ final tableBusProvider = Provider<TableBus>((ref) {
   return bus;
 });
 
-/// [fetch] sorgusunu ilk dinlemede ve [table] tablosunda
-/// `[column] = [value]` olan satırlar değiştikçe yeniden çalıştırır.
-/// Filtreli/sıralı listeler için kullanılır (RLS Realtime'da da uygulanır).
+/// [fetch] sorgusunu ilk dinlemede ve ilgili Realtime olaylarında yeniden
+/// çalıştırır. Ana tablonun INSERT/UPDATE olayları filtrelenir. Supabase
+/// Postgres Changes DELETE olaylarında kolon filtresi güvenilir olmadığından
+/// ayrıca DELETE dinleyicisi kullanılır. [alsoTables] da uzak cihazlarda
+/// dinlenir; böylece örneğin privacy/couple_members değişiklikleri anında
+/// sorguyu yeniler.
 Stream<T> watchQuery<T>(
   SupabaseClient db,
   TableBus bus, {
@@ -59,10 +62,10 @@ Stream<T> watchQuery<T>(
   controller = StreamController<T>(
     onListen: () {
       emit();
-      channel = db
+      var ch = db
           .channel('watch:$table:$value:${const Uuid().v4()}')
           .onPostgresChanges(
-            event: PostgresChangeEvent.all,
+            event: PostgresChangeEvent.insert,
             schema: 'public',
             table: table,
             filter: PostgresChangeFilter(
@@ -72,7 +75,33 @@ Stream<T> watchQuery<T>(
             ),
             callback: (_) => schedule(),
           )
-          .subscribe();
+          .onPostgresChanges(
+            event: PostgresChangeEvent.update,
+            schema: 'public',
+            table: table,
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: column,
+              value: value,
+            ),
+            callback: (_) => schedule(),
+          )
+          .onPostgresChanges(
+            event: PostgresChangeEvent.delete,
+            schema: 'public',
+            table: table,
+            callback: (_) => schedule(),
+          );
+      for (final related in alsoTables.toSet()) {
+        if (related == table) continue;
+        ch = ch.onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: related,
+          callback: (_) => schedule(),
+        );
+      }
+      channel = ch.subscribe();
       busSub = bus.changes.where((t) => t == table || alsoTables.contains(t)).listen((_) => schedule());
     },
     onCancel: () async {

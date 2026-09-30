@@ -92,7 +92,7 @@ class PairingRepository {
       .from('pair_requests')
       .stream(primaryKey: ['id'])
       .eq('from_uid', uid)
-      .order('created_at')
+      .order('created_at', ascending: false)
       .limit(1)
       .map((rows) => rows.isEmpty ? null : PairRequest.fromRow(rows.first));
 }

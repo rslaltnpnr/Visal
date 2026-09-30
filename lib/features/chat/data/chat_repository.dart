@@ -40,7 +40,7 @@ class ChatRepository {
   Stream<List<Message>> watchLatest(int limit) => _table
       .stream(primaryKey: ['id'])
       .eq('couple_id', coupleId)
-      .order('created_at')
+      .order('created_at', ascending: false)
       .limit(limit)
       .map((rows) => rows.map(Message.fromRow).toList());
 

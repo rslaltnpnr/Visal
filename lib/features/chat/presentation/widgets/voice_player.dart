@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../../../../core/services/media_service.dart';
 import '../../../../core/utils/date_x.dart';
 
 /// Sesli mesaj oynatıcı: oynat/durdur + dalga çubuğu ilerlemesi.
-class VoicePlayer extends StatefulWidget {
+class VoicePlayer extends ConsumerStatefulWidget {
   const VoicePlayer({
     super.key,
     required this.url,
@@ -22,10 +24,10 @@ class VoicePlayer extends StatefulWidget {
   final int? durationMs;
 
   @override
-  State<VoicePlayer> createState() => _VoicePlayerState();
+  ConsumerState<VoicePlayer> createState() => _VoicePlayerState();
 }
 
-class _VoicePlayerState extends State<VoicePlayer> {
+class _VoicePlayerState extends ConsumerState<VoicePlayer> {
   AudioPlayer? _player;
   final _subs = <StreamSubscription<dynamic>>[];
   Duration _position = Duration.zero;
@@ -59,20 +61,30 @@ class _VoicePlayerState extends State<VoicePlayer> {
       final p = AudioPlayer();
       _player = p;
       _subs
-        ..add(p.positionStream.listen((d) => setState(() => _position = d)))
+        ..add(p.positionStream.listen((d) {
+          if (mounted) setState(() => _position = d);
+        }))
         ..add(p.durationStream.listen((d) {
-          if (d != null) setState(() => _duration = d);
+          if (d != null && mounted) setState(() => _duration = d);
         }))
         ..add(p.playerStateStream.listen((s) {
           if (s.processingState == ProcessingState.completed) {
             p.pause();
             p.seek(Duration.zero);
           }
-          setState(() => _playing = s.playing && s.processingState != ProcessingState.completed);
+          if (mounted) {
+            setState(() => _playing = s.playing && s.processingState != ProcessingState.completed);
+          }
         }));
       try {
-        widget.url.startsWith('/') ? await p.setFilePath(widget.url) : await p.setUrl(widget.url);
-      } catch (_) {}
+        final resolved = await ref.read(mediaServiceProvider).resolveUrl(widget.url);
+        widget.url.startsWith('/') ? await p.setFilePath(widget.url) : await p.setUrl(resolved);
+      } catch (_) {
+        await p.dispose();
+        _player = null;
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
       if (mounted) setState(() => _loading = false);
     }
     final p = _player!;

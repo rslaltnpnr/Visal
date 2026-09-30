@@ -2,8 +2,10 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
+import '../services/media_service.dart';
 import 'common.dart';
 
 class MediaViewerItem {
@@ -83,16 +85,32 @@ class _MediaViewerScreenState extends State<MediaViewerScreen> {
   }
 }
 
-class _VideoView extends StatefulWidget {
+class _VideoView extends ConsumerWidget {
   const _VideoView({required this.url});
 
   final String url;
 
   @override
-  State<_VideoView> createState() => _VideoViewState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!MediaService.isStorageRef(url)) return _VideoPlayer(url: url);
+    return ref.watch(resolvedStorageUrlProvider(url)).when(
+          data: (resolved) => _VideoPlayer(url: resolved),
+          loading: () => const LoadingView(),
+          error: (e, _) => ErrorView(error: e),
+        );
+  }
 }
 
-class _VideoViewState extends State<_VideoView> {
+class _VideoPlayer extends StatefulWidget {
+  const _VideoPlayer({required this.url});
+
+  final String url;
+
+  @override
+  State<_VideoPlayer> createState() => _VideoPlayerState();
+}
+
+class _VideoPlayerState extends State<_VideoPlayer> {
   late final VideoPlayerController _c = (widget.url.startsWith('/')
       ? VideoPlayerController.file(File(widget.url))
       : VideoPlayerController.networkUrl(Uri.parse(widget.url)))

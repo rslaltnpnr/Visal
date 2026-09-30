@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/router/routes.dart';
+import '../../../../core/services/media_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/date_x.dart';
@@ -294,14 +296,14 @@ class _MediaBody extends StatelessWidget {
   }
 }
 
-class _FileBody extends StatelessWidget {
+class _FileBody extends ConsumerWidget {
   const _FileBody({required this.message, required this.color});
 
   final Message message;
   final Color color;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final media = message.media;
     final size = media?.size;
     final sizeLabel = size == null
@@ -310,9 +312,15 @@ class _FileBody extends StatelessWidget {
             ? '${(size / 1024 / 1024).toStringAsFixed(1)} MB'
             : '${(size / 1024).ceil()} KB';
     return InkWell(
-      onTap: () {
-        final url = message.mediaUrl;
-        if (url != null) launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+      onTap: () async {
+        final raw = message.mediaUrl;
+        if (raw == null || raw.isEmpty) return;
+        try {
+          final url = await ref.read(mediaServiceProvider).resolveUrl(raw);
+          await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+        } catch (e) {
+          if (context.mounted) context.showError(e);
+        }
       },
       child: SizedBox(
         width: 230,

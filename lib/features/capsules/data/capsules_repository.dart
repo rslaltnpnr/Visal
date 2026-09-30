@@ -61,8 +61,9 @@ class CapsulesRepository {
     }
   }
 
-  /// "Kapsülü Kilitle": medya özel yola yüklenir, ardından üst veri ve içerik
-  /// yazılır. Oluşturulduktan sonra değiştirilemez.
+  /// "Kapsülü Kilitle": medya önce private Storage'a yüklenir. Veritabanındaki
+  /// kapsül satırı ile gizli içerik tek RPC/transaction içinde oluşturulur;
+  /// ikinci insert başarısız olursa ilk insert ve bildirim tetikleyicisi de geri alınır.
   Future<void> lock({
     required String recipientId,
     required DateTime openAt,
@@ -73,39 +74,34 @@ class CapsulesRepository {
   }) async {
     final id = const Uuid().v4();
     final refs = <CapsuleMediaRef>[];
-    var created = false;
     try {
       for (var i = 0; i < media.length; i++) {
         final path = await _media.uploadPrivate(
           media[i],
           folder: _folder(id),
-          onProgress: (p) => onProgress?.call((i + p) / media.length),
+          onProgress: (p) => onProgress?.call(media.isEmpty ? 1 : (i + p) / media.length),
         );
         refs.add(CapsuleMediaRef(path: path, kind: media[i].kind));
       }
-      await _capsules.insert({
-        'id': id,
-        'couple_id': coupleId,
-        'created_by': uid,
-        'recipient_id': recipientId,
-        'open_at': dbTs(openAt),
-        'title': title.trim(),
-        'has_photo': refs.any((r) => r.kind == MediaKind.image),
-        'has_video': refs.any((r) => r.kind == MediaKind.video),
-        'has_audio': refs.any((r) => r.kind == MediaKind.audio),
-      });
-      created = true;
-      await _db.from('capsule_contents').insert({
-        'capsule_id': id,
-        'message': message.trim(),
-        'media': refs.map((r) => r.toMap()).toList(),
+      await _db.rpc<void>('create_capsule_atomic', params: {
+        'p_id': id,
+        'p_couple_id': coupleId,
+        'p_recipient_id': recipientId,
+        'p_open_at': dbTs(openAt),
+        'p_title': title.trim(),
+        'p_message': message.trim(),
+        'p_media': refs.map((r) => r.toMap()).toList(),
+        'p_has_photo': refs.any((r) => r.kind == MediaKind.image),
+        'p_has_video': refs.any((r) => r.kind == MediaKind.video),
+        'p_has_audio': refs.any((r) => r.kind == MediaKind.audio),
       });
     } catch (e) {
-      if (refs.isNotEmpty) await _media.deletePaths(refs.map((r) => r.path));
-      if (created) {
+      if (refs.isNotEmpty) {
         try {
-          await _capsules.delete().eq('id', id);
-        } catch (_) {}
+          await _media.deletePaths(refs.map((r) => r.path));
+        } catch (_) {
+          // DB işlemi başarısızsa yetim medya sonraki bakım temizliğinde silinir.
+        }
       }
       throw AppFailure.from(e);
     }

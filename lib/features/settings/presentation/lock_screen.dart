@@ -84,7 +84,15 @@ class _LockScreenState extends ConsumerState<LockScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _tryBiometric());
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _restoreLockout();
+      await _tryBiometric();
+    });
+  }
+
+  Future<void> _restoreLockout() async {
+    final until = await ref.read(appLockServiceProvider).lockoutUntil();
+    if (mounted) setState(() => _lockedUntil = until);
   }
 
   Future<void> _tryBiometric() async {
@@ -100,6 +108,9 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     setState(() {
       _pin += d;
       _error = false;
+      if (_lockedUntil != null && !DateTime.now().isBefore(_lockedUntil!)) {
+        _lockedUntil = null;
+      }
     });
     if (_pin.length == kPinLength) {
       setState(() => _busy = true);
@@ -111,15 +122,13 @@ class _LockScreenState extends ConsumerState<LockScreen> {
         return;
       }
       HapticFeedback.heavyImpact();
-      final failed = await service.failedAttempts();
+      final until = await service.lockoutUntil();
+      if (!mounted) return;
       setState(() {
         _busy = false;
         _error = true;
         _pin = '';
-        // 5 hatalı denemeden sonra artan bekleme süresi.
-        if (failed >= 5) {
-          _lockedUntil = DateTime.now().add(Duration(seconds: 30 * (failed - 4)));
-        }
+        _lockedUntil = until;
       });
     }
   }
