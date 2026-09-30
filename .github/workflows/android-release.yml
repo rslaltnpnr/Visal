@@ -2,7 +2,7 @@ name: Android APK Release
 
 on:
   push:
-    branches: [main, "ccr-*", "fix/production-hardening-v1.0.1"]
+    branches: [main, "ccr-*"]
     paths-ignore: ["**.md", "supabase/**", ".github/workflows/supabase-deploy.yml"]
   workflow_dispatch:
 
@@ -31,9 +31,6 @@ jobs:
           channel: stable
           cache: true
 
-      # Push bildirimleri (isteğe bağlı): Firebase konsolundan indirilen
-      # google-services.json içeriği GOOGLE_SERVICES_JSON secret'ı olarak verilir;
-      # gerekli değerler çıkarılıp --dart-define ile derlemeye aktarılır.
       - name: Firebase (push) yapılandırması
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
@@ -60,9 +57,6 @@ jobs:
           } >> "$GITHUB_ENV"
           echo "Firebase push yapılandırması eklendi."
 
-      # Kalıcı yükleme (upload) anahtarı: ANDROID_KEYSTORE_BASE64 + ANDROID_KEYSTORE_PASSWORD.
-      # Yoksa her derleme farklı bir geçici anahtarla imzalanır ve güncellemeler
-      # eski sürümün üzerine kurulamaz.
       - name: İmza anahtarı
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -96,8 +90,6 @@ jobs:
       - run: flutter analyze
       - run: flutter test
 
-      # Supabase URL ve anon (publishable) anahtar gizli değildir; depo
-      # değişkeni (Settings → Variables) veya secret olarak verilebilir.
       - name: APK derle
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
