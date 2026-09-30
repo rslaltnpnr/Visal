@@ -122,14 +122,15 @@ jobs:
           path: ${{ steps.apk.outputs.name }}
 
       - name: GitHub Release
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.apk.outputs.tag }}
           name: VISAL ${{ steps.apk.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          prerelease: ${{ github.ref != 'refs/heads/main' }}
+          prerelease: false
           files: ${{ steps.apk.outputs.name }}
           body: |
-            VISAL Android test sürümü (${{ github.ref_name }} @ ${{ github.sha }}).
+            VISAL Android sürümü (${{ github.ref_name }} @ ${{ github.sha }}).
 
             Kurulum: APK dosyasını telefona indirip açın ("Bilinmeyen kaynaklardan yükleme" izni gerekir).
