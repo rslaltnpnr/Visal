@@ -95,6 +95,8 @@ class OutgoingUpload {
     required this.localId,
     required this.media,
     required this.type,
+    this.caption,
+    this.replyTo,
     this.progress = 0,
     this.error,
   });
@@ -102,6 +104,8 @@ class OutgoingUpload {
   final String localId;
   final PickedMedia media;
   final MessageType type;
+  final String? caption;
+  final ReplyRef? replyTo;
   final double progress;
   final String? error;
 
@@ -109,6 +113,8 @@ class OutgoingUpload {
         localId: localId,
         media: media,
         type: type,
+        caption: caption,
+        replyTo: replyTo,
         progress: progress ?? this.progress,
         error: error,
       );
@@ -125,7 +131,13 @@ class ChatOutbox extends Notifier<List<OutgoingUpload>> {
     final repo = ref.read(chatRepositoryProvider);
     final service = ref.read(mediaServiceProvider);
     final messageId = repo.newId();
-    final item = OutgoingUpload(localId: const Uuid().v4(), media: media, type: type);
+    final item = OutgoingUpload(
+      localId: const Uuid().v4(),
+      media: media,
+      type: type,
+      caption: caption,
+      replyTo: replyTo,
+    );
     state = [...state, item];
     try {
       final uploaded = await service.upload(
@@ -148,7 +160,7 @@ class ChatOutbox extends Notifier<List<OutgoingUpload>> {
 
   void retry(OutgoingUpload item) {
     dismiss(item);
-    send(item.media, item.type);
+    send(item.media, item.type, caption: item.caption, replyTo: item.replyTo);
   }
 
   void dismiss(OutgoingUpload item) =>
