@@ -31,7 +31,7 @@ class VisalApp extends ConsumerWidget {
       themeMode: themeMode,
       routerConfig: router,
       locale: const Locale('tr', 'TR'),
-      supportedLocales: const [Locale('tr', 'TR'), Locale('en')],
+      supportedLocales: const [Locale('tr', 'TR')],
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
@@ -68,14 +68,12 @@ class _SessionEffectsState extends ConsumerState<SessionEffects>
     WidgetsBinding.instance.addObserver(this);
     final notifications = ref.read(notificationServiceProvider);
     notifications.init();
-    // Ana ekran widget'ları (sayaç, ❤️) oturum ve çift durumunu izler.
     HomeWidgetService.init();
     _widgetSub = ref.listenManual(
       homeWidgetDataProvider,
       (_, next) => HomeWidgetService.push(next),
       fireImmediately: true,
     );
-    // Şifre sıfırlama bağlantısıyla dönüldüğünde yeni şifre ekranı açılır.
     _authSub = ref.read(supabaseProvider).auth.onAuthStateChange.listen((state) {
       if (state.event == AuthChangeEvent.passwordRecovery) {
         ref.read(routerProvider).push(Routes.resetPassword);
@@ -107,7 +105,6 @@ class _SessionEffectsState extends ConsumerState<SessionEffects>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // ❤️ widget'ı arka planda oturumu yenilemiş olabilir.
       resyncSessionFromStorage(ref.read(sharedPreferencesProvider), ref.read(supabaseProvider).auth);
     }
     final user = ref.read(currentUserProvider).value;
@@ -187,7 +184,6 @@ class _AppLockGateState extends ConsumerState<AppLockGate>
     switch (state) {
       case AppLifecycleState.inactive:
       case AppLifecycleState.hidden:
-        // Uygulama değiştirici önizlemesinde içeriği gizle.
         final enabled = await ref.read(appLockControllerProvider.notifier).isEnabled();
         if (enabled && mounted) setState(() => _obscured = true);
       case AppLifecycleState.paused:
