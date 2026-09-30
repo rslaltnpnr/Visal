@@ -29,10 +29,11 @@ where media is not null
   and coalesce(media ->> 'path', '') <> ''
   and coalesce(media_url, '') not like 'visal-storage://%';
 
--- Anıların media JSON dizisini eleman eleman dönüştür.
+-- Anıların media JSON dizisini eleman eleman dönüştür. Correlated scalar
+-- subquery kullanılır; UPDATE ... FROM LATERAL hedef alias'ını doğrudan
+-- referanslayamadığı için burada bu form daha güvenlidir.
 update public.memories m
-set media = converted.value
-from lateral (
+set media = (
   select coalesce(jsonb_agg(
     case
       when coalesce(item ->> 'path', '') = '' then item
@@ -56,9 +57,9 @@ from lateral (
       )
     end
     order by ord
-  ), '[]'::jsonb) as value
+  ), '[]'::jsonb)
   from jsonb_array_elements(coalesce(m.media, '[]'::jsonb)) with ordinality as x(item, ord)
-) converted
+)
 where m.media is not null
   and jsonb_typeof(m.media) = 'array';
 
