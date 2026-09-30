@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../services/media_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/failure.dart';
@@ -115,8 +116,9 @@ class SectionHeader extends StatelessWidget {
   }
 }
 
-/// Önbellekli ağ görseli; küçük resim (thumb) varsa önce onu gösterir.
-class NetImage extends StatelessWidget {
+/// Önbellekli ağ görseli. Private Storage referansları görüntüleme anında
+/// kısa ömürlü signed URL'ye çevrilir; DB'de kalıcı erişim anahtarı tutulmaz.
+class NetImage extends ConsumerWidget {
   const NetImage(
     this.url, {
     super.key,
@@ -137,36 +139,64 @@ class NetImage extends StatelessWidget {
   final int? memCacheWidth;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final placeholder = Container(
       width: width,
       height: height,
       color: context.isDark ? AppColors.darkElevated : AppColors.blush,
     );
-    if (url == null || url!.isEmpty) return _clip(placeholder);
-    if (url!.startsWith('/')) {
+    final raw = url;
+    if (raw == null || raw.isEmpty) return _clip(placeholder);
+    if (raw.startsWith('/')) {
       // Yerel dosya (demo modu / gönderim önizlemesi).
-      return _clip(Image.file(File(url!), fit: fit, width: width, height: height, cacheWidth: memCacheWidth));
+      return _clip(Image.file(File(raw), fit: fit, width: width, height: height, cacheWidth: memCacheWidth));
     }
+
+    String? resolvedThumb = thumbUrl;
+    if (MediaService.isStorageRef(thumbUrl)) {
+      resolvedThumb = ref.watch(resolvedStorageUrlProvider(thumbUrl!)).value;
+    }
+
+    if (MediaService.isStorageRef(raw)) {
+      final resolved = ref.watch(resolvedStorageUrlProvider(raw));
+      return resolved.when(
+        data: (actualUrl) => _network(context, actualUrl, resolvedThumb, placeholder),
+        loading: () => _clip(
+          resolvedThumb == null
+              ? placeholder
+              : CachedNetworkImage(imageUrl: resolvedThumb, fit: fit, width: width, height: height),
+        ),
+        error: (_, _) => _error(context, placeholder),
+      );
+    }
+    return _network(context, raw, resolvedThumb, placeholder);
+  }
+
+  Widget _network(BuildContext context, String actualUrl, String? resolvedThumb, Container placeholder) {
     final image = CachedNetworkImage(
-      imageUrl: url!,
+      imageUrl: actualUrl,
       fit: fit,
       width: width,
       height: height,
       memCacheWidth: memCacheWidth,
       fadeInDuration: const Duration(milliseconds: 220),
-      placeholder: (_, _) => thumbUrl != null
-          ? CachedNetworkImage(imageUrl: thumbUrl!, fit: fit, width: width, height: height)
+      placeholder: (_, _) => resolvedThumb != null
+          ? CachedNetworkImage(imageUrl: resolvedThumb, fit: fit, width: width, height: height)
           : placeholder,
-      errorWidget: (_, _, _) => Container(
-        width: width,
-        height: height,
-        color: placeholder.color,
-        alignment: Alignment.center,
-        child: Icon(Icons.image_not_supported_outlined, color: context.palette.muted),
-      ),
+      errorWidget: (_, _, _) => _error(context, placeholder, clipped: false),
     );
     return _clip(image);
+  }
+
+  Widget _error(BuildContext context, Container placeholder, {bool clipped = true}) {
+    final child = Container(
+      width: width,
+      height: height,
+      color: placeholder.color,
+      alignment: Alignment.center,
+      child: Icon(Icons.image_not_supported_outlined, color: context.palette.muted),
+    );
+    return clipped ? _clip(child) : child;
   }
 
   Widget _clip(Widget child) => radius > 0
