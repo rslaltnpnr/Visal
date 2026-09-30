@@ -12,7 +12,7 @@ name: Supabase Deploy
 
 on:
   push:
-    branches: [main, "ccr-*", "fix/production-hardening-v1.0.1"]
+    branches: [main, "ccr-*"]
     paths: ["supabase/**", ".github/workflows/supabase-deploy.yml"]
   workflow_dispatch:
 
@@ -84,9 +84,6 @@ jobs:
             exit 1
           fi
 
-      # Her deploy'da rastgele secret döndürmek kısa süreli 401 penceresi yaratıyordu.
-      # Project ref + FCM service account üzerinden kararlı fakat dışarıdan bilinmeyen
-      # bir shared secret türetilir; iki taraf her deploy'da aynı değeri kullanır.
       - name: Edge Function secret'ları
         if: steps.check.outputs.push == 'true'
         run: |
