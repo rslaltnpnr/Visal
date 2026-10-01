@@ -5,17 +5,157 @@ import 'dart:ui' show Color;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../firebase_options.dart';
 import '../config/env.dart';
 import 'supabase_providers.dart';
 
-/// Arka planda gelen FCM mesajları. Bildirim yükü sistem tarafından
-/// gösterildiği için burada ek iş yapılmaz; fonksiyon izole girişi olmalı.
+const _replyActionId = 'visal_reply';
+
+/// Bildirimdeki Android "Yanıtla" alanından gelen metni, uygulamayı açmadan
+/// mevcut oturumla doğrudan sohbet mesajına çevirir.
 @pragma('vm:entry-point')
-Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {}
+void visalNotificationBackgroundResponse(NotificationResponse response) async {
+  if (response.actionId != _replyActionId) return;
+  final text = response.input?.trim();
+  if (text == null || text.isEmpty) return;
+  final sent = await _sendQuickReply(text);
+  if (sent && response.id != null) {
+    try {
+      await FlutterLocalNotificationsPlugin().cancel(id: response.id!);
+    } catch (_) {}
+  }
+}
+
+/// Android'de mesaj push'ları data-only gelir. Böylece sistemin kısıtlı FCM
+/// bildirimi yerine VISAL kendi yerel bildirimini oluşturup Yanıtla aksiyonu
+/// ekleyebilir. Firebase bu işleyiciyi uygulama kapalıyken ayrı isolate'ta açar.
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  if (kIsWeb || !Platform.isAndroid) return;
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    }
+    await _showAndroidPush(message);
+  } catch (e) {
+    debugPrint('Arka plan bildirimi gösterilemedi: $e');
+  }
+}
+
+Future<bool> _sendQuickReply(String text) async {
+  if (!Env.supabaseConfigured) return false;
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await Supabase.initialize(
+      url: Env.supabaseUrl,
+      publishableKey: Env.supabaseAnonKey,
+      authOptions: const FlutterAuthClientOptions(authFlowType: AuthFlowType.pkce),
+    );
+  } catch (_) {
+    // Ayrı isolate'ta normalde ilk kez kurulur; aynı isolate'ta zaten kuruluysa
+    // mevcut singleton istemci kullanılabilir.
+  }
+
+  try {
+    final db = Supabase.instance.client;
+    if (db.auth.currentSession == null) return false;
+    try {
+      await db.auth.refreshSession();
+    } catch (_) {
+      // Geçerli access token varsa refresh başarısız olsa da aşağıdaki RLS isteği
+      // güvenli biçimde sonucu belirler.
+    }
+    final uid = db.auth.currentUser?.id;
+    if (uid == null) return false;
+    final profile = await db.from('profiles').select('couple_id').eq('id', uid).maybeSingle();
+    final coupleId = profile?['couple_id'] as String?;
+    if (coupleId == null || coupleId.isEmpty) return false;
+    await db.from('messages').insert({
+      'couple_id': coupleId,
+      'sender_id': uid,
+      'type': 'text',
+      'text': text,
+      'seen_by': [uid],
+    });
+    return true;
+  } catch (e) {
+    debugPrint('Bildirimden yanıt gönderilemedi: $e');
+    return false;
+  }
+}
+
+Future<void> _showAndroidPush(
+  RemoteMessage message, {
+  FlutterLocalNotificationsPlugin? local,
+}) async {
+  if (!Platform.isAndroid) return;
+  final plugin = local ?? FlutterLocalNotificationsPlugin();
+  if (local == null) {
+    await plugin.initialize(
+      settings: const InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      ),
+      onDidReceiveBackgroundNotificationResponse: visalNotificationBackgroundResponse,
+    );
+  }
+
+  final type = message.data['type'] as String? ?? '';
+  final title = (message.data['title'] as String?) ?? message.notification?.title ?? 'VISAL';
+  final body = (message.data['body'] as String?) ?? message.notification?.body ?? 'Yeni bildirim';
+  final route = message.data['route'] as String?;
+  final channel = switch (type) {
+    'message' || 'love' => VisalChannels.messages,
+    'event' => VisalChannels.reminders,
+    _ => VisalChannels.moments,
+  };
+
+  final android = plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+  await android?.createNotificationChannel(channel);
+
+  final actions = type == 'message'
+      ? const <AndroidNotificationAction>[
+          AndroidNotificationAction(
+            _replyActionId,
+            'Yanıtla',
+            inputs: <AndroidNotificationActionInput>[
+              AndroidNotificationActionInput(label: 'Mesaj yaz…'),
+            ],
+            semanticAction: SemanticAction.reply,
+            allowGeneratedReplies: true,
+            showsUserInterface: false,
+            cancelNotification: false,
+          ),
+        ]
+      : const <AndroidNotificationAction>[];
+
+  final id = (message.messageId ?? '${DateTime.now().microsecondsSinceEpoch}-${message.hashCode}').hashCode & 0x7fffffff;
+  await plugin.show(
+    id: id,
+    title: title,
+    body: body,
+    payload: route,
+    notificationDetails: NotificationDetails(
+      android: AndroidNotificationDetails(
+        channel.id,
+        channel.name,
+        channelDescription: channel.description,
+        importance: channel.importance,
+        priority: Priority.high,
+        color: const Color(0xFFB68AA0),
+        icon: '@mipmap/ic_launcher',
+        category: type == 'message' ? AndroidNotificationCategory.message : null,
+        actions: actions,
+        styleInformation: BigTextStyleInformation(body),
+      ),
+    ),
+  );
+}
 
 final notificationServiceProvider = Provider<NotificationService>((ref) {
   final service = NotificationService(
@@ -80,14 +220,28 @@ class NotificationService {
           requestSoundPermission: false,
         ),
       ),
-      onDidReceiveNotificationResponse: (r) {
+      onDidReceiveNotificationResponse: (r) async {
+        if (r.actionId == _replyActionId) {
+          final text = r.input?.trim();
+          if (text != null && text.isNotEmpty) {
+            final sent = await _sendQuickReply(text);
+            if (sent && r.id != null) await _local.cancel(id: r.id!);
+          }
+          return;
+        }
         final route = r.payload;
         if (route != null && route.isNotEmpty) _tapController.add(route);
       },
+      onDidReceiveBackgroundNotificationResponse: visalNotificationBackgroundResponse,
     );
 
-    final android = _local.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final launch = await _local.getNotificationAppLaunchDetails();
+    final launchRoute = launch?.notificationResponse?.payload;
+    if ((launch?.didNotificationLaunchApp ?? false) && launchRoute != null && launchRoute.isNotEmpty) {
+      Future<void>.delayed(const Duration(milliseconds: 600), () => _tapController.add(launchRoute));
+    }
+
+    final android = _local.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
     for (final c in [
       VisalChannels.messages,
       VisalChannels.moments,
@@ -110,7 +264,6 @@ class NotificationService {
     _subs.add(FirebaseMessaging.onMessageOpenedApp.listen(_onOpened));
     final initial = await messaging.getInitialMessage();
     if (initial != null) {
-      // Router hazır olduktan sonra işlenmesi için küçük gecikme.
       Future<void>.delayed(const Duration(milliseconds: 600), () => _onOpened(initial));
     }
   }
@@ -139,7 +292,6 @@ class NotificationService {
     final messaging = _fcm;
     if (messaging == null) return;
     if (Platform.isIOS) {
-      // APNs jetonu hazır olmadan FCM jetonu alınamaz.
       for (var i = 0; i < 5; i++) {
         if (await messaging.getAPNSToken() != null) break;
         await Future<void>.delayed(const Duration(seconds: 1));
@@ -186,33 +338,10 @@ class NotificationService {
   }
 
   Future<void> _onForegroundMessage(RemoteMessage m) async {
-    if (!Platform.isAndroid) return; // iOS sistem tarafından gösterilir.
+    if (!Platform.isAndroid) return;
     final type = m.data['type'] as String? ?? '';
     if (chatVisible && (type == 'message' || type == 'love')) return;
-    final n = m.notification;
-    if (n == null) return;
-    final channel = switch (type) {
-      'message' || 'love' => VisalChannels.messages,
-      'event' => VisalChannels.reminders,
-      _ => VisalChannels.moments,
-    };
-    await _local.show(
-      id: m.hashCode & 0x7fffffff,
-      title: n.title,
-      body: n.body,
-      payload: m.data['route'] as String?,
-      notificationDetails: NotificationDetails(
-        android: AndroidNotificationDetails(
-          channel.id,
-          channel.name,
-          channelDescription: channel.description,
-          importance: channel.importance,
-          priority: Priority.high,
-          color: const Color(0xFFB68AA0),
-          icon: '@mipmap/ic_launcher',
-        ),
-      ),
-    );
+    await _showAndroidPush(m, local: _local);
   }
 
   void dispose() {
