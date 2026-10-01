@@ -52,6 +52,12 @@
             <!-- Bağlantıları supabase_flutter işler; router'a iletilmez. -->
             <meta-data android:name="flutter_deeplinking_enabled" android:value="false"/>
         </activity>
+
+        <!-- flutter_local_notifications: Android RemoteInput / "Yanıtla" aksiyonları -->
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
+            android:exported="false" />
+
         <!-- Ana ekran widget'ları -->
         <receiver
             android:name=".widget.TogetherWidgetProvider"
