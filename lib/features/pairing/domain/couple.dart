@@ -9,7 +9,6 @@ class Couple {
     this.anniversaryDate,
     this.theme,
     this.coverPhoto,
-    this.summaryPhoto,
     this.createdAt,
   });
 
@@ -19,7 +18,6 @@ class Couple {
   final DateTime? anniversaryDate;
   final String? theme;
   final String? coverPhoto;
-  final String? summaryPhoto;
   final DateTime? createdAt;
 
   String partnerOf(String uid) => members.firstWhere((m) => m != uid, orElse: () => '');
@@ -37,7 +35,6 @@ class Couple {
         anniversaryDate: tsToDate(d['anniversary_date']),
         theme: d['theme'] as String?,
         coverPhoto: d['cover_photo'] as String?,
-        summaryPhoto: d['summary_photo'] as String?,
         createdAt: tsToDate(d['created_at']),
       );
 }
