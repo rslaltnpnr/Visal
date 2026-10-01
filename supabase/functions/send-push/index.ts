@@ -7,16 +7,6 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const CHANNELS: Record<string, string> = {
-  message: "visal_messages",
-  love: "visal_messages",
-  memory: "visal_moments",
-  capsule: "visal_moments",
-  question: "visal_moments",
-  pairing: "visal_moments",
-  event: "visal_reminders",
-};
-
 interface ServiceAccount {
   project_id: string;
   client_email: string;
@@ -93,18 +83,31 @@ async function sendFcm(sa: ServiceAccount, p: PushPayload): Promise<string[]> {
       body: JSON.stringify({
         message: {
           token,
-          notification: { title, body },
-          data: { type: p.type, route: p.route },
+          // Android'de top-level notification bilinçli olarak yok: data-only
+          // push Flutter background handler'a ulaşır ve RemoteInput "Yanıtla"
+          // aksiyonlu yerel bildirim VISAL tarafından oluşturulur.
+          data: {
+            type: p.type,
+            route: p.route,
+            title,
+            body,
+          },
           android: {
             priority: "HIGH",
             collapse_key: p.collapseKey ?? undefined,
-            notification: {
-              channel_id: CHANNELS[p.type] ?? "visal_moments",
-              color: "#B68AA0",
-              tag: p.collapseKey ?? undefined,
+          },
+          // iOS tarafında data-only bildirimlerin kullanıcıya görünmemesi için
+          // doğrudan APNs alert payload'ı korunur.
+          apns: {
+            headers: { "apns-priority": "10" },
+            payload: {
+              aps: {
+                alert: { title, body },
+                sound: "default",
+                "thread-id": p.collapseKey ?? p.type,
+              },
             },
           },
-          apns: { payload: { aps: { sound: "default", "thread-id": p.collapseKey ?? p.type } } },
         },
       }),
     });
