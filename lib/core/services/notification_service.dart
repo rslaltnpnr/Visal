@@ -309,11 +309,24 @@ class NotificationService {
   }
 
   /// Aynı cihaz başka hesaba geçtiyse jeton yeni kullanıcıya devredilir.
+  /// Yeni Android istemcisi inline-reply capability'sini de kaydeder. Migration
+  /// henüz ulaşmadıysa iki parametreli eski RPC'ye geri düşülür.
   Future<void> _saveToken(String uid, String token) async {
     try {
-      await _db.rpc<void>('claim_device_token', params: {'p_token': token, 'p_platform': Platform.operatingSystem});
-    } catch (e) {
-      debugPrint('Cihaz jetonu kaydedilemedi: $e');
+      await _db.rpc<void>('claim_device_token', params: {
+        'p_token': token,
+        'p_platform': Platform.operatingSystem,
+        'p_inline_reply': Platform.isAndroid,
+      });
+    } catch (_) {
+      try {
+        await _db.rpc<void>('claim_device_token', params: {
+          'p_token': token,
+          'p_platform': Platform.operatingSystem,
+        });
+      } catch (e) {
+        debugPrint('Cihaz jetonu kaydedilemedi: $e');
+      }
     }
   }
 
