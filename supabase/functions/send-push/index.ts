@@ -7,6 +7,16 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+const CHANNELS: Record<string, string> = {
+  message: "visal_messages",
+  love: "visal_messages",
+  memory: "visal_moments",
+  capsule: "visal_moments",
+  question: "visal_moments",
+  pairing: "visal_moments",
+  event: "visal_reminders",
+};
+
 interface ServiceAccount {
   project_id: string;
   client_email: string;
@@ -15,6 +25,7 @@ interface ServiceAccount {
 
 interface PushPayload {
   tokens: string[];
+  replyTokens?: string[];
   hidden: boolean;
   title: string;
   body: string;
@@ -75,41 +86,50 @@ async function sendFcm(sa: ServiceAccount, p: PushPayload): Promise<string[]> {
   const body = p.hidden ? p.hiddenBody : p.body;
   const invalid: string[] = [];
   const transientErrors: string[] = [];
+  const replyTokens = new Set(p.replyTokens ?? []);
 
   await Promise.all(p.tokens.map(async (token) => {
-    const res = await fetch(`https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${access}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: {
+    const inlineReply = replyTokens.has(token) && p.type === "message";
+    const message = inlineReply
+      ? {
+          // Yeni Android istemcileri: data-only push. Uygulama yerel
+          // RemoteInput bildirimi üretir ve bildirimden doğrudan yanıt verir.
           token,
-          // Android'de top-level notification bilinçli olarak yok: data-only
-          // push Flutter background handler'a ulaşır ve RemoteInput "Yanıtla"
-          // aksiyonlu yerel bildirim VISAL tarafından oluşturulur.
-          data: {
-            type: p.type,
-            route: p.route,
-            title,
-            body,
-          },
+          data: { type: p.type, route: p.route, title, body },
           android: {
             priority: "HIGH",
             collapse_key: p.collapseKey ?? undefined,
           },
-          // iOS tarafında data-only bildirimlerin kullanıcıya görünmemesi için
-          // doğrudan APNs alert payload'ı korunur.
+        }
+      : {
+          // Eski Android sürümleri ve iOS: mevcut görünür notification akışı.
+          // Böylece yeni sürüme geçene kadar bildirimler kesilmez.
+          token,
+          notification: { title, body },
+          data: { type: p.type, route: p.route },
+          android: {
+            priority: "HIGH",
+            collapse_key: p.collapseKey ?? undefined,
+            notification: {
+              channel_id: CHANNELS[p.type] ?? "visal_moments",
+              color: "#B68AA0",
+              tag: p.collapseKey ?? undefined,
+            },
+          },
           apns: {
-            headers: { "apns-priority": "10" },
             payload: {
               aps: {
-                alert: { title, body },
                 sound: "default",
                 "thread-id": p.collapseKey ?? p.type,
               },
             },
           },
-        },
-      }),
+        };
+
+    const res = await fetch(`https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${access}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
     });
 
     if (!res.ok) {
