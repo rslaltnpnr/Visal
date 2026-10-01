@@ -2,7 +2,7 @@ name: visal
 description: "VISAL — İkinize ait bir dünya. Çiftler için özel dijital alan."
 publish_to: 'none'
 
-version: 1.0.1+1
+version: 1.0.2+1
 
 environment:
   sdk: ^3.13.4

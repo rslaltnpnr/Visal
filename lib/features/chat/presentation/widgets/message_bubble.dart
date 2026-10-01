@@ -154,6 +154,7 @@ class MessageBubble extends StatelessWidget {
     return _SwipeToReply(
       onReply: m.deletedForAll ? null : onReply,
       child: AnimatedContainer(
+        width: double.infinity,
         duration: const Duration(milliseconds: 400),
         color: highlighted ? AppColors.rose.withValues(alpha: 0.18) : Colors.transparent,
         padding: EdgeInsets.fromLTRB(12, 1, 12, groupedWithNext ? 1 : 6),

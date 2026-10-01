@@ -25,6 +25,7 @@ interface ServiceAccount {
 
 interface PushPayload {
   tokens: string[];
+  replyTokens?: string[];
   hidden: boolean;
   title: string;
   body: string;
@@ -85,13 +86,24 @@ async function sendFcm(sa: ServiceAccount, p: PushPayload): Promise<string[]> {
   const body = p.hidden ? p.hiddenBody : p.body;
   const invalid: string[] = [];
   const transientErrors: string[] = [];
+  const replyTokens = new Set(p.replyTokens ?? []);
 
   await Promise.all(p.tokens.map(async (token) => {
-    const res = await fetch(`https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${access}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: {
+    const inlineReply = replyTokens.has(token) && p.type === "message";
+    const message = inlineReply
+      ? {
+          // Yeni Android istemcileri: data-only push. Uygulama yerel
+          // RemoteInput bildirimi üretir ve bildirimden doğrudan yanıt verir.
+          token,
+          data: { type: p.type, route: p.route, title, body },
+          android: {
+            priority: "HIGH",
+            collapse_key: p.collapseKey ?? undefined,
+          },
+        }
+      : {
+          // Eski Android sürümleri ve iOS: mevcut görünür notification akışı.
+          // Böylece yeni sürüme geçene kadar bildirimler kesilmez.
           token,
           notification: { title, body },
           data: { type: p.type, route: p.route },
@@ -104,9 +116,20 @@ async function sendFcm(sa: ServiceAccount, p: PushPayload): Promise<string[]> {
               tag: p.collapseKey ?? undefined,
             },
           },
-          apns: { payload: { aps: { sound: "default", "thread-id": p.collapseKey ?? p.type } } },
-        },
-      }),
+          apns: {
+            payload: {
+              aps: {
+                sound: "default",
+                "thread-id": p.collapseKey ?? p.type,
+              },
+            },
+          },
+        };
+
+    const res = await fetch(`https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${access}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
     });
 
     if (!res.ok) {
